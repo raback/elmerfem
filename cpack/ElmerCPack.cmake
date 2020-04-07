@@ -142,6 +142,9 @@ IF(CMAKE_SYSTEM_NAME MATCHES "Windows")
       INSTALL(FILES ${QTF0} ${QTF1} ${QTF2} ${QTF3} ${QTF4} ${QTF5} ${QTF6} ${QTF7} ${QTF8} ${QTF9} ${QTF10} ${QTF11} ${QTF12} ${QTF13} ${QTF14} DESTINATION "bin")
       INSTALL(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../platforms" DESTINATION "bin")
 	ENDIF()
+    IF(WITH_VTK)
+      INSTALL(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../bundle_vtk/bin" DESTINATION ".")
+    ENDIF()
 
     IF(BUNDLE_STRIPPED_GFORTRAN)
       # TODO: This will make the windows package to be GPL3
