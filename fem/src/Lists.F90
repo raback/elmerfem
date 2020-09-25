@@ -48,9 +48,7 @@ MODULE Lists
 
    USE Messages
    USE GeneralUtils
-#ifdef USE_ISO_C_BINDINGS
    USE LoadMod
-#endif
    
    IMPLICIT NONE
 
@@ -80,81 +78,6 @@ MODULE Lists
 
    INTEGER, PARAMETER :: MAX_FNC = 32
    
-#ifndef USE_ISO_C_BINDINGS
-   INTERFACE
-     FUNCTION ExecIntFunction( Proc,Md ) RESULT(int)
-       USE Types
-#ifdef SGI
-       INTEGER :: Proc
-#else
-       INTEGER(KIND=AddrInt) :: Proc
-#endif
-       TYPE(Model_t) :: Md
-
-       INTEGER :: int
-     END FUNCTION ExecIntFunction
-   END INTERFACE
-
-   INTERFACE
-     FUNCTION ExecRealFunction( Proc,Md,Node,Temp ) RESULT(dbl)
-       USE Types
-
-#ifdef SGI
-       INTEGER :: Proc
-#else
-       INTEGER(KIND=AddrInt) :: Proc
-#endif
-       TYPE(Model_t) :: Md
-       INTEGER :: Node
-       REAL(KIND=dp) :: Temp(*)
-
-       REAL(KIND=dp) :: dbl
-     END FUNCTION ExecRealFunction
-   END INTERFACE
-
-   INTERFACE
-     SUBROUTINE ExecRealArrayFunction( Proc,Md,Node,Temp,F )
-       USE Types
-
-#ifdef SGI
-       INTEGER :: Proc
-#else
-       INTEGER(KIND=AddrInt) :: Proc
-#endif
-       TYPE(Model_t) :: Md
-       INTEGER :: Node,n1,n2
-       REAL(KIND=dp) :: Temp(*)
-
-       REAL(KIND=dp) :: F(:,:)
-     END SUBROUTINE ExecRealArrayFunction
-   END INTERFACE
-
-   INTERFACE
-     SUBROUTINE ExecRealVectorFunction( Proc,Md,Node,T,F )
-       USE Types
-       INTEGER(KIND=AddrInt) :: Proc
-       TYPE(Model_t) :: Md
-       INTEGER :: Node,n1,n2
-       REAL(KIND=dp) :: T(*), F(:)
-     END SUBROUTINE ExecRealVectorFunction
-   END INTERFACE
-
-   INTERFACE
-     FUNCTION ExecConstRealFunction( Proc,Md,x,y,z ) RESULT(dbl)
-       USE Types
-
-#ifdef SGI
-       INTEGER :: Proc
-#else
-       INTEGER(KIND=AddrInt) :: Proc
-#endif
-       TYPE(Model_t) :: Md
-
-       REAL(KIND=dp) :: dbl,x,y,z
-     END FUNCTION ExecConstRealFunction
-   END INTERFACE
-#endif
-
 #ifdef HAVE_LUA
    interface ElmerEvalLua
      module procedure ElmerEvalLuaS, ElmerEvalLuaT, ElmerEvalLuaV
@@ -1200,11 +1123,7 @@ use spariterglobals
       LOGICAL :: Found, GlobalBubbles, UseProjector
       CHARACTER(LEN=LEN_TRIM(Name)) :: str
       CHARACTER(LEN=MAX_NAME_LEN) :: tmpname
-#ifdef USE_ISO_C_BINDINGS
       DOUBLE PRECISION :: t1
-#else
-      DOUBLE PRECISION :: t1,CPUTime
-#endif
 !------------------------------------------------------------------------------
       INTERFACE
         SUBROUTINE InterpolateMeshToMesh( OldMesh, NewMesh, OldVariables, &
@@ -2786,7 +2705,12 @@ use spariterglobals
 
       IF ( PRESENT(Proc) ) ptr % PROCEDURE = Proc
 
-      ptr % TYPE = LIST_TYPE_CONSTANT_TENSOR
+      IF( n == 1 ) THEN
+        ptr % TYPE = LIST_TYPE_INTEGER
+      ELSE
+        ptr % TYPE = LIST_TYPE_CONSTANT_TENSOR
+      END IF
+      
       ptr % IValues(1:n) = IValues(1:n)
 
       ptr % NameLen = StringToLowerCase( ptr % Name,Name )
@@ -3073,6 +2997,10 @@ use spariterglobals
        RETURN
      END IF
 
+     IF( ptr % type /= LIST_TYPE_INTEGER ) THEN
+       CALL Fatal('ListGetInteger','Invalid list type for: '//TRIM(Name))
+     END IF
+     
      IF ( ptr % PROCEDURE /= 0 ) THEN
        CALL ListPushActiveName(Name)
        L = ExecIntFunction( ptr % PROCEDURE, CurrentModel )
@@ -3131,13 +3059,12 @@ use spariterglobals
          END IF
        END IF
        RETURN
-     END IF
-
+     END IF     
+     
      IF ( .NOT. ASSOCIATED(ptr % IValues) ) THEN
-       WRITE(Message,*) 'VALUE TYPE for property [', TRIM(Name), &
+       WRITE(Message,*) 'Value type for property [', TRIM(Name), &
                '] not used consistently.'
        CALL Fatal( 'ListGetIntegerArray', Message )
-       RETURN
      END IF
 
      n = SIZE(ptr % IValues)
@@ -3155,6 +3082,41 @@ use spariterglobals
    END FUNCTION ListGetIntegerArray
 !------------------------------------------------------------------------------
 
+
+!------------------------------------------------------------------------------
+!> Check whether the keyword is associated to an integer or real array.
+!------------------------------------------------------------------------------
+   RECURSIVE FUNCTION ListCheckIsArray( List,Name,Found ) RESULT( IsArray )
+!------------------------------------------------------------------------------
+     TYPE(ValueList_t), POINTER :: List
+     CHARACTER(LEN=*)  :: Name
+     LOGICAL, OPTIONAL :: Found
+     LOGICAL :: IsArray
+!------------------------------------------------------------------------------
+     TYPE(ValueListEntry_t), POINTER :: ptr
+     INTEGER :: n
+!------------------------------------------------------------------------------
+
+     ptr => ListFind(List,Name,Found)
+     IsArray = .FALSE.
+     IF(.NOT. ASSOCIATED( ptr ) ) RETURN
+     
+     n = 0
+     IF ( ASSOCIATED(ptr % IValues) ) THEN
+       n = SIZE(ptr % IValues)
+     END IF
+     IF( ASSOCIATED( ptr % FValues ) ) THEN
+       n = SIZE(ptr % FValues)
+     END IF
+
+     IsArray = ( n > 1 )
+     
+!------------------------------------------------------------------------------
+   END FUNCTION ListCheckIsArray
+!------------------------------------------------------------------------------
+
+
+   
 !------------------------------------------------------------------------------
 !> Gets a logical value from the list, if not found return False.
 !------------------------------------------------------------------------------
@@ -3178,7 +3140,13 @@ use spariterglobals
        END IF
        RETURN
      END IF
-     L = ptr % Lvalue
+
+     IF(ptr % TYPE == LIST_TYPE_LOGICAL ) THEN
+       L = ptr % Lvalue
+     ELSE
+       CALL Fatal('ListGetLogical','Invalid list type for: '//TRIM(Name))
+     END IF
+     
 !------------------------------------------------------------------------------
    END FUNCTION ListGetLogical
 !------------------------------------------------------------------------------
@@ -3218,6 +3186,8 @@ use spariterglobals
        L = ( RVal > 0.0_dp )
      ELSE
        L = .TRUE.
+       !Mere presence implies true mask
+       !CALL Fatal('ListGetLogicalGen','Invalid list type for: '//TRIM(Name))
      END IF
      
 !------------------------------------------------------------------------------
@@ -3249,7 +3219,13 @@ use spariterglobals
        END IF
        RETURN
      END IF
-     S = ptr % Cvalue
+     
+     IF( ptr % Type == LIST_TYPE_STRING ) THEN     
+       S = ptr % Cvalue
+     ELSE
+       CALL Fatal('ListGetString','Invalid list type: '//TRIM(Name))
+     END IF
+       
 !------------------------------------------------------------------------------
    END FUNCTION ListGetString
 !------------------------------------------------------------------------------
@@ -3324,6 +3300,12 @@ use spariterglobals
            ExecConstRealFunction( ptr % PROCEDURE,CurrentModel,xx,yy,zz )
        CALL ListPopActiveName()
 
+     CASE( LIST_TYPE_VARIABLE_SCALAR, LIST_TYPE_VARIABLE_SCALAR_STR )       
+       CALL Fatal('ListGetConstReal','Constant cannot depend on variables: '//TRIM(Name))
+
+     CASE DEFAULT
+       CALL Fatal('ListGetConstReal','Invalid list type for: '//TRIM(Name))       
+       
      END SELECT
 
      IF ( PRESENT( minv ) ) THEN
@@ -3602,9 +3584,6 @@ use spariterglobals
 
 
   
-
-
-  
 !------------------------------------------------------------------------------
 !> Given a string containing comma-separated variablenames, reads the strings
 !> and obtains the corresponding variables to a table.
@@ -3720,10 +3699,15 @@ use spariterglobals
            CYCLE
          ELSE IF( Var % TYPE == Variable_on_elements ) THEN
            Element => CurrentModel % CurrentElement
-           IF( ASSOCIATED( Element ) ) k1 = Element % ElementIndex
+           IF( ASSOCIATED( Element ) ) THEN
+             k1 = Element % ElementIndex
+           ELSE
+             CALL Fatal('VarsToValuesOnNodes','CurrentElement not associated!')
+           END IF
          ELSE IF ( Var % TYPE == Variable_on_nodes_on_elements ) THEN
            Element => CurrentModel % CurrentElement
            IF ( ASSOCIATED(Element) ) THEN
+             k1 = 0
              IF ( ASSOCIATED(Element % DGIndexes) ) THEN
                n = Element % TYPE % NumberOfNodes
                IF ( SIZE(Element % DGIndexes)==n ) THEN
@@ -3735,6 +3719,12 @@ use spariterglobals
                  END DO
                END IF
              END IF
+             IF( k1 == 0 ) THEN
+               CALL Fatal('VarsToValueOnNodes','Could not find index '//TRIM(I2S(ind))//&
+                   ' in element '//TRIM(I2S(Element % ElementIndex)))
+             END IF
+           ELSE
+             CALL Fatal('VarsToValuesOnNodes','CurrentElement not associated!')
            END IF
          END IF
 
@@ -4076,7 +4066,7 @@ use spariterglobals
        IF(PRESENT(UnfoundFatal)) THEN
          IF(UnfoundFatal) THEN
            WRITE(Message, '(A,A)') "Failed to find real: ",Name
-           CALL Fatal("ListGetInteger", Message)
+           CALL Fatal("ListGetReal", Message)
          END IF
        END IF
        RETURN
@@ -4167,7 +4157,7 @@ use spariterglobals
          CALL VarsToValuesOnNodes( VarCount, VarTable, k, T, j )
          
 #ifdef HAVE_LUA
-         IF ( .not. ptr % LuaFun ) THEN
+         IF ( .NOT. ptr % LuaFun ) THEN
 #endif
            IF ( .NOT. ANY( T(1:j)==HUGE(1.0_dp) ) ) THEN
              DO l=1,j
@@ -4185,7 +4175,7 @@ use spariterglobals
 
 #ifdef HAVE_LUA
          ELSE
-           call ElmerEvalLua(LuaState, ptr, T, F(i), varcount)
+           CALL ElmerEvalLua(LuaState, ptr, T, F(i), j )
          END IF
 #endif
          IF( AllGlobal ) THEN
@@ -5537,7 +5527,7 @@ use spariterglobals
                END IF
 #ifdef HAVE_LUA
              ELSE
-               CALL ElmerEvalLua(LuaState, ptr, T, F(i), Handle % varcount)
+               CALL ElmerEvalLua(LuaState, ptr, T, F(i), j )
              END IF
 #endif
 
@@ -5634,7 +5624,7 @@ use spariterglobals
                
 #ifdef HAVE_LUA
              ELSE
-               call ElmerEvalLua(LuaState, ptr, T, Handle % RTensor, Handle % varcount)
+               call ElmerEvalLua(LuaState, ptr, T, Handle % RTensor, j )
              END IF
 #endif
              ELSE IF ( ptr % PROCEDURE /= 0 ) THEN
@@ -6740,8 +6730,10 @@ use spariterglobals
      
      IF ( PRESENT(tStep) ) THEN
        IF ( tStep < 0 ) THEN
-         IF ( ASSOCIATED(Variable % PrevValues) .AND. -tStep<=SIZE(Variable % PrevValues,2)) &
+         IF ( ASSOCIATED(Variable % PrevValues) ) THEN
+           IF ( -tStep<=SIZE(Variable % PrevValues,2)) &
              Handle % Values => Variable % PrevValues(:,-tStep)
+         END IF
        END IF
      ELSE
        Handle % Values => Variable % Values      
@@ -8120,9 +8112,6 @@ use spariterglobals
   SUBROUTINE ResetTimer(TimerName)
     CHARACTER(*) :: TimerName
     REAL(KIND=dp) :: ct, rt
-#ifndef USE_ISO_C_BINDINGS
-    REAL(KIND=dp) :: RealTime, CPUTime
-#endif
     LOGICAL :: Found,FirstTime=.TRUE.
 
     IF( FirstTime ) THEN
@@ -8198,9 +8187,6 @@ use spariterglobals
     LOGICAL, OPTIONAL :: Reset, Delete
     
     REAL(KIND=dp) :: ct0,rt0,ct, rt, cumct, cumrt
-#ifndef USE_ISO_C_BINDINGS
-    REAL(KIND=dp) :: RealTime, CPUTime
-#endif
     LOGICAL :: Found
 
     IF( TimerPassive ) RETURN

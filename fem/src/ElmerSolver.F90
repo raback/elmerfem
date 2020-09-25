@@ -85,7 +85,7 @@
      INTEGER :: TimeIntervals,interval,timestep, &
        TotalTimesteps,SavedSteps,CoupledMaxIter,CoupledMinIter
 
-     INTEGER, POINTER, SAVE :: Timesteps(:),OutputIntervals(:), ActiveSolvers(:)
+     INTEGER, POINTER, SAVE :: Timesteps(:),OutputIntervals(:) => NULL(), ActiveSolvers(:)
      REAL(KIND=dp), POINTER, SAVE :: TimestepSizes(:,:)
 
      INTEGER(KIND=AddrInt) :: ControlProcedure
@@ -104,21 +104,23 @@
      TYPE(Mesh_t), POINTER :: Mesh
      TYPE(Solver_t), POINTER :: Solver
 
-#ifdef USE_ISO_C_BINDINGS
      REAL(KIND=dp) :: CT0,RT0,tt
-#else
-     REAL(KIND=dp) :: RealTime,CPUTime,CT0,RT0,tt
-#endif
 
      LOGICAL :: FirstLoad = .TRUE., FirstTime=.TRUE., Found
      LOGICAL :: Silent, Version, GotModelName, FinishEarly
 
      INTEGER :: iargc, NoArgs
-     INTEGER :: iostat, iSweep, ParamSweeps
+     INTEGER :: iostat, iSweep = 1, OptimIters
      
      INTEGER :: MeshIndex
      TYPE(Mesh_t), POINTER :: ExtrudedMesh
 
+     TYPE(Model_t), POINTER, SAVE :: Control
+     CHARACTER(LEN=MAX_NAME_LEN) :: MeshDir, MeshName
+     LOGICAL :: DoControl, GotParams
+     INTEGER :: nr
+     REAL(KIND=dp), ALLOCATABLE :: rpar(:)
+     
 #ifdef HAVE_TRILINOS
 INTERFACE
       SUBROUTINE TrilinosCleanup() BIND(C,name='TrilinosCleanup')
@@ -142,22 +144,34 @@ END INTERFACE
      END IF
      
      IF ( FirstTime ) THEN
-
        !
        ! Print banner to output:
        ! -----------------------
-#ifdef USE_ISO_C_BINDINGS
        NoArgs = COMMAND_ARGUMENT_COUNT()
-#else
-       NoArgs = IARGC()
-#endif
        ! Info Level is always true until the model has been read!
        ! This makes it possible to cast something 
        Silent = .FALSE.
        Version = .FALSE.
+
        IF( NoArgs > 0 ) THEN 
-         DO i = 1, NoArgs 
+         i = 0
+         DO WHILE( i < NoArgs )
+           i = i + 1 
            CALL GET_COMMAND_ARGUMENT(i, OptionString)
+           IF( OptionString=='-rpar' ) THEN
+             ! Followed by number of paramters + the parameter values
+             i = i + 1
+             CALL GET_COMMAND_ARGUMENT(i, OptionString)
+             READ( OptionString,*) nr             
+             ALLOCATE( rpar(nr) )
+             DO j=1,nr
+               i = i + 1
+               CALL GET_COMMAND_ARGUMENT(i, OptionString)
+               READ( OptionString,*) rpar(j)
+             END DO
+             CALL Info('MAIN','Read '//TRIM(I2S(nr))//' parameters from command line!')
+             CALL SetParametersMATC(nr,rpar)
+           END IF
            Silent = Silent .OR. &
                ( OptionString=='-s' .OR. OptionString=='--silent' ) 
            Version = Version .OR. &
@@ -170,11 +184,8 @@ END INTERFACE
        !$ nthreads = omp_get_max_threads()
        IF (nthreads > 1 ) THEN
          ! Check if OMP_NUM_THREADS environment variable is set
-#if USE_ISO_C_BINDINGS
          CALL envir( 'OMP_NUM_THREADS', threads, tlen )
-#else
-         CALL envir( 'OMP_NUM_THREADS'//CHAR(0), threads, tlen )
-#endif
+
          IF (tlen==0) THEN
            CALL Info('MAIN','OMP_NUM_THREADS not set. Using only 1 thread per task.',Level=6)
            nthreads = 1
@@ -261,7 +272,7 @@ END INTERFACE
          IF (NoArgs > 1) CALL GET_COMMAND_ARGUMENT(2, eq)
        END IF
      END IF
-         
+
      IF( .NOT. GotModelName ) THEN
        OPEN( 1, File='ELMERSOLVER_STARTINFO', STATUS='OLD', IOSTAT=iostat )       
        IF( iostat /= 0 ) THEN
@@ -271,6 +282,32 @@ END INTERFACE
        CLOSE(1)
      END IF
 
+     ! This sets optionally some internal parameters for doing scanning
+     ! over a parameter space / optimization. 
+     !-----------------------------------------------------------------
+     IF( FirstTime ) THEN
+       OPEN( Unit=InFileUnit, Action='Read',File=ModelName,Status='OLD',IOSTAT=iostat)         
+       IF( iostat /= 0 ) THEN
+         CALL Fatal( 'ElmerSolver', 'Unable to find input file [' // &
+             TRIM(Modelname) // '], can not execute.' )
+       END IF
+       ALLOCATE( Control )          
+       ! Read only the "Run Control" section of the sif file.
+       CALL LoadInputFile( Control,InFileUnit,ModelName,MeshDir,MeshName, &
+           .FALSE., .TRUE., ControlOnly = .TRUE.)
+       DoControl =  ASSOCIATED( Control % Control )
+       IF( DoControl ) THEN
+         CALL Info('ElmerSolver','Run Control section active!')
+         OptimIters = ListGetInteger( Control % Control,'Run Control Iterations', Found )
+         IF(.NOT. Found) OptimIters = 1              
+
+         ! If there are no parameters this does nothing
+         CALL ControlParameters(Control % Control,1,GotParams,FinishEarly)
+       ELSE
+         OptimIters = 1 
+       END IF
+     END IF
+                
 !------------------------------------------------------------------------------
 !    Read element definition file, and initialize element types
 !------------------------------------------------------------------------------
@@ -453,17 +490,23 @@ END INTERFACE
        ! This sets optionally some internal parameters for doing scanning
        ! over a parameter space / optimization. 
        !-----------------------------------------------------------------
-       ParamSweeps = ListGetInteger( CurrentModel % Simulation,&
-           'Parameter Max Sweeps', GotIt )
-       IF(.NOT. GotIt) ParamSweeps = 1
-       
-       DO iSweep = 1, ParamSweeps
+       DO iSweep = 1, OptimIters
          sSweep = 1.0_dp * iSweep
-         
-         ! If there are no parameters this does nothing         
-         CALL SetSimulationParameters(iSweep,FinishEarly)
-         IF( FinishEarly ) EXIT
-         
+         ! If there are no parameters this does nothing                  
+         IF( DoControl ) THEN
+           CALL ControlResetMesh(Control % Control, iSweep )            
+           IF( iSweep > 1 ) THEN
+             CALL ControlParameters(Control % Control, &
+                 iSweep,GotParams,FinishEarly)           
+             IF( FinishEarly ) EXIT
+             Found = ReloadInputFile(CurrentModel,RewindFile=.TRUE.)
+             CALL InitializeIntervals()
+             IF( ListGetLogical( Control % Control,'Reset Initial Conditions',Found ) ) THEN
+               CALL SetInitialConditions()
+             END IF
+           END IF
+         END IF
+           
          !------------------------------------------------------------------------------
          ! Here we actually perform the simulation: ExecSimulation does it all ....
          !------------------------------------------------------------------------------
@@ -476,6 +519,12 @@ END INTERFACE
            CALL ExecSimulation( TimeIntervals, CoupledMinIter, &
                CoupledMaxIter, OutputIntervals, Transient, Scanning)
          END IF
+
+         ! This evaluates the cost function and saves the results of control
+         IF( DoControl ) THEN
+           CALL ControlParameters(Control % Control, &
+               iSweep,GotParams,FinishEarly,.TRUE.)
+         END IF
        END DO
        
        ! Comparison to reference is done to enable consistency test underc ctest.
@@ -485,7 +534,7 @@ END INTERFACE
        IF ( Initialize >= 2 ) EXIT
      END DO
 
-     
+ 
      CALL CompareToReferenceSolution( Finalize = .TRUE. )
 
 
@@ -621,9 +670,11 @@ END INTERFACE
          IF( SIZE(OutputIntervals) /= SIZE(TimeSteps) ) THEN
            CALL Fatal('ElmerSolver','> Output Intervals < should have the same size as > Timestep Intervals < !')
          END IF
-       ELSE
-         ALLOCATE( OutputIntervals(SIZE(TimeSteps)) )
-         OutputIntervals = 1
+       ELSE 
+         IF( .NOT. ASSOCIATED( OutputIntervals ) ) THEN
+           ALLOCATE( OutputIntervals(SIZE(TimeSteps)) )
+           OutputIntervals = 1
+         END IF
        END IF 
 
 
@@ -638,7 +689,6 @@ END INTERFACE
        sStep = 0
        sPeriodic = 0._dp
        sScan = 0._dp
-       sSweep = 0._dp
        
        sSize = dt
        sPrevSizes = 0_dp
@@ -729,7 +779,7 @@ END INTERFACE
          
          IF( Success ) THEN
            CALL Info('CompareToReferenceSolution',&
-               'PASSED all '//TRIM(I2S(TestCount))//' tests!',Level=4)
+               'PASSED all '//TRIM(I2S(TestCount))//' tests!',Level=3)
          ELSE         
            CALL Warn('CompareToReferenceSolution','FAILED '//TRIM(I2S(FailCount))//&
                ' tests out of '//TRIM(I2S(TestCount))//'!')
@@ -808,15 +858,14 @@ END INTERFACE
            ELSE         
              WRITE( Message,'(A,I0,A,ES15.8,A,ES15.8)') &
                  'Solver ',solver_id,' PASSED:  Norm =',Norm,'  RefNorm =',RefNorm
-             CALL Info('CompareToReferenceSolution',Message,Level=4)
+             CALL Info('CompareToReferenceSolution',Message,Level=3)
            END IF
            IF( AbsoluteErr ) THEN
              WRITE( Message,'(A,ES13.6)') 'Absolute Error to reference norm:',Err
            ELSE
              WRITE( Message,'(A,ES13.6)') 'Relative Error to reference norm:',Err
            END IF
-           CALL Info('CompareToReferenceSolution',Message, Level = 4 )
-
+           CALL Info('CompareToReferenceSolution',Message, Level = 3 )
          END IF
 
          IF( CompareSolution ) THEN
@@ -858,13 +907,13 @@ END INTERFACE
                    'Solver ',solver_id,' FAILED:  Solution = ',Norm,'  RefSolution =',RefNorm
                CALL Warn('CompareToReferenceSolution',Message)
                WRITE( Message,'(A,ES13.6)') 'Relative Error to reference solution:',Err
-               CALL Info('CompareToReferenceSolution',Message, Level = 4 )
+               CALL Info('CompareToReferenceSolution',Message, Level = 3 )
              END IF
              Success = .FALSE.
            ELSE         
              WRITE( Message,'(A,I0,A,ES15.8,A,ES15.8)') &
                  'Solver ',solver_id,' PASSED:  Solution =',Norm,'  RefSolution =',RefNorm
-             CALL Info('CompareToReferenceSolution',Message,Level=4)
+             CALL Info('CompareToReferenceSolution',Message,Level=3)
            END IF
          END IF
 
@@ -968,7 +1017,7 @@ END INTERFACE
        ! Add a few often needed keywords also if they are given in simulation section
        CALL ListCopyPrefixedKeywords( Simu, Params, 'vtu:' )
 
-       CALL Info('AddVtuOutputSolverHack','Finished appeding VTU output solver',Level=12)
+       CALL Info('AddVtuOutputSolverHack','Finished appending VTU output solver',Level=12)
        
      END SUBROUTINE AddVtuOutputSolverHack
 
@@ -1052,7 +1101,7 @@ END INTERFACE
        ! Add a few often needed keywords also if they are given in simulation section
        CALL ListCopyPrefixedKeywords( Simu, Params, 'scalars:' )
 
-       CALL Info('AddSaveScalarsHack','Finished appeding SaveScalars solver',Level=12)
+       CALL Info('AddSaveScalarsHack','Finished appending SaveScalars solver',Level=12)
        
      END SUBROUTINE AddSaveScalarsHack
 
@@ -1166,10 +1215,11 @@ END INTERFACE
          CALL VariableAdd( Mesh % Variables, Mesh, Name='scan', DOFs=1, Values=sScan )
        END IF
 
-       IF( ListCheckPresent( CurrentModel % Simulation,'Parameter Max Sweeps') ) THEN
-         CALL VariableAdd( Mesh % Variables, Mesh, Name='sweep', DOFs=1, Values=sSweep )
+       IF( DoControl ) THEN
+         sSweep = 1.0_dp * iSweep
+         CALL VariableAdd( Mesh % Variables, Mesh, Name='run', DOFs=1, Values=sSweep )
        END IF
-       
+              
        sPar(1) = 1.0_dp * ParEnv % MyPe 
        CALL VariableAdd( Mesh % Variables, Mesh, Name='Partition', DOFs=1, Values=sPar ) 
 
@@ -1459,7 +1509,6 @@ END INTERFACE
            Var => Var % Next
          END DO
        END IF
-
        
        m = Mesh % MaxElementDofs
        n = Mesh % MaxElementNodes      
@@ -1584,23 +1633,38 @@ END INTERFACE
                ! We do this elsewhere in a more efficient manner
                CONTINUE
                
-             ELSE IF ( Var % DOFs <= 1 ) THEN
-
+             ELSE IF ( Var % DOFs == 1 ) THEN
                 
                Work(1:n) = ListGetReal( IC, Var % Name, n, CurrentElement % NodeIndexes, GotIt )
                IF ( GotIt ) THEN
-                 DOFs = GetElementDOFs( Indexes, USolver=Var % Solver )
+                 ! Sometimes you may have both DG and bubbles,
+                 ! this way DG always has priority. 
+                 IF( Var % TYPE == Variable_on_nodes_on_elements ) THEN 
+                   IF(.NOT.ASSOCIATED(CurrentElement % DGIndexes)) GOTO 1
+                   Indexes(1:n) = CurrentElement % DgIndexes(1:n)
+                 ELSE
+                   DOFs = GetElementDOFs( Indexes, USolver=Var % Solver )
+                 END IF
+
                  DO k=1,n
                    k1 = Indexes(k)
                    IF ( ASSOCIATED(Var % Perm) ) k1 = Var % Perm(k1)
                    IF ( k1>0 ) Var % Values(k1) = Work(k)
                  END DO
+ 
+1                CONTINUE
+
                END IF
 
                IF ( Transient .AND. Solver % TimeOrder==2 ) THEN
                  Work(1:n) = GetReal( IC, TRIM(Var % Name) // ' Velocity', GotIt )
                  IF ( GotIt ) THEN
-                   DOFs = GetElementDOFs( Indexes, USolver=Var % Solver )
+                   IF( Var % TYPE == Variable_on_nodes_on_elements ) THEN 
+                     Indexes(1:n) = CurrentElement % DgIndexes(1:n)
+                   ELSE
+                     DOFs = GetElementDOFs( Indexes, USolver=Var % Solver )
+                   END IF
+
                    DO k=1,n
                      k1 = Indexes(k)
                      IF ( ASSOCIATED(Var % Perm) ) k1 = Var % Perm(k1)
@@ -1609,7 +1673,12 @@ END INTERFACE
                  END IF
                  Work(1:n) = GetReal( IC, TRIM(Var % Name) // ' Acceleration', GotIt )
                  IF ( GotIt ) THEN
-                   DOFs = GetElementDOFs( Indexes, USolver=Var % Solver )
+                   IF( Var % TYPE == Variable_on_nodes_on_elements ) THEN 
+                     Indexes(1:n) = CurrentElement % DgIndexes(1:n)
+                   ELSE
+                     DOFs = GetElementDOFs( Indexes, USolver=Var % Solver )
+                   END IF
+
                    DO k=1,n
                      k1 = Indexes(k)
                      IF ( ASSOCIATED(Var % Perm) ) k1 = Var % Perm(k1)
@@ -1657,7 +1726,6 @@ END INTERFACE
            END DO
            CSolver => CurrentModel % Solver
          END DO
-
          
          ! Here we do just the gauss point values for now.
          ! It would really make sense to do the ICs in this order since probably
@@ -1787,7 +1855,8 @@ END INTERFACE
          Var => Mesh % Variables
          DO WHILE( ASSOCIATED(Var) ) 
            IF( ListCheckPresentAnyIC( CurrentModel, Var % Name ) ) THEN
-             PRINT *,'InitCond post range:',TRIM(Var % Name),MINVAL(Var % Values),MAXVAL( Var % Values)
+             PRINT *,'InitCond post range:',TRIM(Var % Name),&
+                 MINVAL(Var % Values),MAXVAL( Var % Values),SUM(Var % Values)/SIZE(Var % Values)
            END IF
            Var => Var % Next
          END DO
@@ -1809,11 +1878,13 @@ END INTERFACE
 !------------------------------------------------------------------------------
      USE DefUtils
      LOGICAL :: Gotit, DoIt
-     INTEGER :: i, j, k
+     INTEGER :: i, j, k, l
      REAL(KIND=dp) :: StartTime
      TYPE(Mesh_t), POINTER :: Mesh, pMesh
      TYPE(ValueList_t), POINTER :: RestartList
      LOGICAL, ALLOCATABLE :: MeshDone(:)
+     INTEGER, POINTER :: MeshesToRestart(:)
+     LOGICAL :: CheckMesh, DoMesh
 !------------------------------------------------------------------------------
 
      
@@ -1885,10 +1956,16 @@ END INTERFACE
        END DO
      END IF
  
-     
      ! Do the standard global restart
      !-----------------------------------------------------------------
-     RestartList => CurrentModel % Simulation    
+     RestartList => CurrentModel % Simulation
+
+     ! We may supress restart from certain meshes.
+     ! This was initially only related to calving, but no need to limit to that. 
+     l = 0
+     MeshesToRestart => ListGetIntegerArray(RestartList,&
+         'Meshes To Restart', CheckMesh )
+     
      RestartFile = ListGetString( RestartList, 'Restart File', GotIt )
      IF ( GotIt ) THEN      
        k = ListGetInteger( RestartList,'Restart Position',GotIt, minv=0 )
@@ -1916,19 +1993,51 @@ END INTERFACE
          END IF
          IF ( ParEnv % PEs > 1 .AND. .NOT. Mesh % SingleMesh ) &
            OutputName = TRIM(OutputName) // '.' // TRIM(i2s(ParEnv % MyPe))
+         
+         l = l+1
 
-         CALL SetCurrentMesh( CurrentModel, Mesh )         
-         CALL LoadRestartFile( OutputName, k, Mesh )
-
-         StartTime = ListGetConstReal( RestartList ,'Restart Time',GotIt)
-         IF( GotIt ) THEN
-	   Var  => VariableGet( Mesh % Variables, 'Time' )
-           IF ( ASSOCIATED( Var ) )  Var % Values(1) = StartTime
+         DoMesh = .TRUE.
+         IF(CheckMesh) THEN
+           DoMesh = (ANY(MeshesToRestart == l))
          END IF
 
+         IF( DoMesh ) THEN
+           CALL SetCurrentMesh( CurrentModel, Mesh )
+           CALL LoadRestartFile( OutputName, k, Mesh )
+           
+           StartTime = ListGetConstReal( RestartList ,'Restart Time',GotIt)
+           IF( GotIt ) THEN
+             Var  => VariableGet( Mesh % Variables, 'Time' )
+             IF ( ASSOCIATED( Var ) )  Var % Values(1) = StartTime
+           END IF
+         END IF           
          Mesh => Mesh % Next
        END DO
-     END IF     
+     ELSE
+       StartTime = ListGetConstReal( CurrentModel % Simulation  ,'Start Time',GotIt)
+       Mesh => CurrentModel % Meshes
+
+       j = 0
+       IF( GotIt ) THEN
+         DO WHILE( ASSOCIATED(Mesh) ) 
+           j = j + 1
+
+           ! Make sure that if a mesh has already been restarted 
+           ! it is not being done again. 
+           IF( MeshDone(j) ) THEN
+             CALL Info('Restart','Already done mesh: '//TRIM(Mesh % Name))
+             Mesh => Mesh % Next
+             CYCLE
+           END IF
+           MeshDone(j) = .TRUE.
+           Var  => VariableGet( Mesh % Variables, 'Time' )
+           IF ( ASSOCIATED( Var ) )  Var % Values(1) = StartTime
+           WRITE(Message,*) 'Found "Start Time" (without restart) and setting time-variable to t=',StartTime
+           CALL INFO("Restart",Message,Level=1)
+         END DO
+       END IF
+     END IF
+ 
      
 !------------------------------------------------------------------------------
    END SUBROUTINE Restart
@@ -2037,13 +2146,35 @@ END INTERFACE
          END IF
 
          IF ( Transient .OR. Scanning ) THEN
-           dtfunc = ListGetConstReal( CurrentModel % Simulation, &
-               'Timestep Function', gotIt)
+           dtfunc = ListGetCReal( CurrentModel % Simulation,'Timestep Function',GotIt )
            IF(GotIt) THEN
              CALL Warn('ExecSimulation','Obsolete keyword > Timestep Function < , use > Timestep Size < instead')
-           ELSE
-             dtfunc = ListGetCReal( CurrentModel % Simulation, &
-                 'Timestep Size', gotIt)
+           ELSE           
+             dtfunc = ListGetCReal( CurrentModel % Simulation,'Timestep Size', gotIt)
+           END IF
+           IF( GotIt ) THEN             
+             BLOCK                 
+               TYPE(Variable_t), POINTER :: tVar
+               INTEGER :: dtiter 
+               REAL(KIND=dp) :: t0
+               dtiter = ListGetInteger( CurrentModel % Simulation,'Timestep Size Iterations',Found)
+
+               ! If timestep size depends on time i.e. dt=dt(t) we may sometimes want to iterate
+               ! so that the timestep is consistent with the new time t+dt i.e. dt=dt(t+dt).
+               IF( dtiter > 0 ) THEN
+                 tVar => VariableGet( CurrentModel % Mesh % Variables, 'time' )
+                 IF(ASSOCIATED(tVar)) THEN
+                   t0 = tVar % Values(1)
+                   ! Iterate for consistent time + timestep size. 
+                   DO i=1,dtiter  
+                     tVar % Values(1) = t0 + dtfunc
+                     dtfunc = ListGetCReal( CurrentModel % Simulation,'Timestep Size' )
+                   END DO
+                   ! Revert back to original time, this will be added later on again.
+                   tVar % Values(1) = t0
+                 END IF
+               END IF
+             END BLOCK
            END IF
            IF(GotIt) THEN
              dt = dtfunc
