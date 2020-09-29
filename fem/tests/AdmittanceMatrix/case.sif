@@ -84,7 +84,7 @@ End
 Boundary Condition 1
   Target Boundaries = 1
 
-!  Potential = 0.0
+  Potential = 0.0
 End
 
 Boundary Condition 2

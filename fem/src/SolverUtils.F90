@@ -4482,7 +4482,7 @@ CONTAINS
 
     INTEGER :: NoNodes,NoDims,bf_id,nlen, NOFNodesFound, dim, &
         bndry_start, bndry_end, Upper
-    REAL(KIND=dp), POINTER :: CoordNodes(:,:), Condition(:), Work(:)!,DiagScaling(:)
+    REAL(KIND=dp), POINTER :: CoordNodes(:,:), Condition(:), Work(:)
     REAL(KIND=dp) :: GlobalMinDist,Dist, Eps
     LOGICAL, ALLOCATABLE :: ActivePart(:), ActiveCond(:), ActivePartAll(:)
     TYPE(ValueList_t), POINTER :: ValueList, Params
@@ -5602,11 +5602,11 @@ CONTAINS
                   b(lmax) = 0._dp
 
                   IF( .NOT. OffDiagonal ) THEN
-                    b(lmax) = b(lmax) + Work(j) !/DiagScaling(lmax)
+                    b(lmax) = b(lmax) + Work(j) 
                   END IF
 
                   ! Consider all components of the cartesian vector mapped to the 
-                  ! N-T coordinate system. Should this perhaps have scaling included?
+                  ! N-T coordinate system.
                   DirCount = DirCount + 1
                   CALL ZeroRow( A,lmax )
                   IF( .NOT. OffDiagonal) THEN
@@ -5995,13 +5995,8 @@ CONTAINS
             m = Perm( Projector % Cols(l) )
             IF ( m > 0 ) THEN
               m = NDOFs * (m-1) + DOF
-              !IF(ALLOCATED(A % Dvalues)) THEN
-                A % Dvalues(k) = A % Dvalues(k) - Scale * Projector % Values(l) * &
-                    Var % Values(m) !/DiagScaling(k)
-              !ELSE
-              !  b(k) = b(k) - Scale * Projector % Values(l) * &
-              !      Var % Values(m)/DiagScaling(k)
-              !END IF
+              A % Dvalues(k) = A % Dvalues(k) - Scale * Projector % Values(l) * &
+                  Var % Values(m) 
             END IF
           END DO
         END IF
@@ -6134,15 +6129,13 @@ CONTAINS
                 m = NDOFs*(m-1) + DOF
                 DO nn=A % Rows(k),A % Rows(k+1)-1
                    CALL AddToMatrixElement( A, m, A % Cols(nn), &
-                          -scale*Projector % Values(l) * A % Values(nn) ) !/ &
-                          !DiagScaling(k) * DiagScaling(m))
+                       -scale*Projector % Values(l) * A % Values(nn) )
                    IF (ASSOCIATED(F % Values)) THEN
                      CALL AddToMatrixElement( F, m, F % Cols(nn), &
                           -scale*Projector % Values(l) * F % Values(nn) )
                    END IF
                 END DO
-                b(m)=b(m) - scale*Projector % Values(l)*b(k) !*&
-                        !DiagScaling(m) / DiagScaling(k)
+                b(m)=b(m) - scale*Projector % Values(l)*b(k)
                 IF (ASSOCIATED(F % RHS)) THEN
                   F % RHS(m) = F % RHS(m) - scale*Projector % Values(l)*F % RHS(k)
                 END IF
@@ -6241,7 +6234,7 @@ CONTAINS
            weight = WeightVar % Values( k )
            coeff = ListGetRealAtNode( BC,'Periodic BC Coefficient '&
                //Name(1:nlen),ii, Found )
-           val = -weight * coeff !* DiagScaling(k)**2
+           val = -weight * coeff 
            scale = -1.0
          ELSE         
            val = 1.0_dp
@@ -6258,17 +6251,11 @@ CONTAINS
              m = Perm( Projector % Cols(l) )
              IF ( m > 0 ) THEN
                m = NDOFs * (m-1) + DOF
-               CALL AddToMatrixElement( A,k,m,val * Projector % Values(l) ) !* &
-                   !( DiagScaling(m) / DiagScaling(k) ) )
+               CALL AddToMatrixElement( A,k,m,val * Projector % Values(l) )
              END IF
           END DO
 
-          !IF(.NOT. Jump) THEN
-          !  A % ConstrainedDof(k) = .TRUE.
-          !  A % DValues(k) = -ValueOffset
-          !ELSE          
-            b(k) = b(k) - ValueOffset !/ DiagScaling(k)
-          !END IF
+          b(k) = b(k) - ValueOffset 
           CALL AddToMatrixElement( A,k,k,scale*val )
           
         END IF
@@ -6614,7 +6601,7 @@ CONTAINS
     INTEGER, TARGET :: Perm(:)    !< The node reordering info, this has been generated at the
                                   !< beginning of the simulation for bandwidth optimization
 !------------------------------------------------------------------------------
-    INTEGER :: i,t,u,j,k,k2,l,l2,n,bc_id,nlen,NormalInd,Ncomplex
+    INTEGER :: i,t,u,j,k,k2,l,l2,n,bc_id,nlen,NormalInd,Ncomplex,Ncomp
     LOGICAL :: Found
     TYPE(ValueList_t), POINTER :: BC
     TYPE(Mesh_t), POINTER :: Mesh
@@ -6637,8 +6624,17 @@ CONTAINS
     CALL Info('SetConstraintModesBoundaries','Setting constraint modes boundaries for variable: '&
         //TRIM(Name),Level=7)
 
+    IF( LIstGetLogical( Solver % Values,'Linear System Complex',Found) ) THEN
+      Ncomplex = 2
+    ELSE
+      Ncomplex = 1
+    END IF
+    Ncomp = NDOFs / Ncomplex
+    
+    PRINT *,'Ncomplex:',NComplex, Var % NumberOfConstraintModes, Ncomp
+    
     ! Allocate the indeces for the constraint modes
-    ALLOCATE( Var % ConstraintModesIndeces( A % NumberOfRows ) )
+    ALLOCATE( Var % ConstraintModesIndeces( A % NumberOfRows / Ncomplex ) )
     Var % ConstraintModesIndeces = 0
     
     ALLOCATE( BCPerm( Model % NumberOfBCs ) ) 
@@ -6667,13 +6663,7 @@ CONTAINS
           'Constraint Modes Analysis requested but no constrained BCs given!')
     END IF
 
-    IF( LIstGetLogical( Solver % Values,'Linear System Complex',Found) ) THEN
-      Ncomplex = 2
-    ELSE
-      Ncomplex = 1
-    END IF
-    
-    Var % NumberOfConstraintModes = NDOFS * j  / Ncomplex
+    Var % NumberOfConstraintModes = Ncomp * j 
         
     DO t = Mesh % NumberOfBulkElements+1, &
         Mesh % NumberOfBulkElements + Mesh % NumberOfBoundaryElements
@@ -6688,16 +6678,20 @@ CONTAINS
       NodeIndexes => Element % NodeIndexes
 
       ! For vector valued problems treat each component as separate dof
-      DO k=1,NDOFs
-        Var % ConstraintModesIndeces( NDOFS*(Perm(NodeIndexes)-1)+k) = NDOFS*(BCPerm(bc_id)-1)+k
+      DO k=1,Ncomp
+        Var % ConstraintModesIndeces( Ncomp*(Perm(NodeIndexes)-1)+k) = Ncomp*(BCPerm(bc_id)-1)+k
       END DO
     END DO
     
     ! The constraint modes can be either lumped or not.
     ! If they are not lumped then mark each individually
-    IF( .NOT. ListGetLogical(Solver % Values,'Constraint Modes Lumped',Found ) ) THEN
+    IF( ListGetLogical(Solver % Values,'Constraint Modes Lumped',Found ) ) THEN
+      DO j = 1, Var % NumberOfConstraintModes
+      !  PRINT *,'Constrained mode: ',j,COUNT(Var % ConstraintModesIndeces == j )
+      END DO
+    ELSE
       j = 0
-      DO i=1,A % NumberOfRows
+      DO i=1,A % NumberOfRows / NComplex
         IF( Var % ConstraintModesIndeces(i) > 0 ) THEN
           j = j + 1
           Var % ConstraintModesIndeces(i) = j
@@ -6710,12 +6704,14 @@ CONTAINS
     
 
     ! Manipulate the boundaries such that we need to modify only the r.h.s. in the actual linear solver
-    DO k=1,A % NumberOfRows       
-      IF( Var % ConstraintModesIndeces(k) == 0 ) CYCLE
-      A % ConstrainedDOF(k) = .TRUE.
-      A % DValues(k) = 0.0_dp
-    END DO
-    
+    IF( NComplex == 1 ) THEN
+      DO k=1,A % NumberOfRows 
+        IF( Var % ConstraintModesIndeces(k) == 0 ) CYCLE
+        A % ConstrainedDOF(k) = .TRUE.
+        A % DValues(k) = 0.0_dp
+      END DO
+    END IF
+      
     ALLOCATE( Var % ConstraintModes( Var % NumberOfConstraintModes, A % NumberOfRows ) )
     Var % ConstraintModes = 0.0_dp
 
@@ -14013,17 +14009,21 @@ SUBROUTINE SolveConstraintModesSystem( A, x, b, Solver )
 !------------------------------------------------------------------------------
     TYPE(Matrix_t), POINTER :: A
     TYPE(Solver_t) :: Solver
-    REAL(KIND=dp) CONTIG :: x(:),b(:)
+    REAL(KIND=dp) CONTIG, TARGET :: x(:)
+    REAL(KIND=dp) CONTIG :: b(:)
 !------------------------------------------------------------------------------
     TYPE(Variable_t), POINTER :: Var
-    INTEGER :: i,j,k,n,m,Nmode,Mmode
-    LOGICAL :: PrecRecompute, Stat, Found, ComputeFluxes, Symmetric, IsComplex
-    REAL(KIND=dp), POINTER CONTIG :: PValues(:)
-    REAL(KIND=dp), ALLOCATABLE :: Fluxes(:), FluxesMatrix(:,:)
+    INTEGER :: i,j,k,n,m,Nmode,Mmode,Ncomplex
+    INTEGER, ALLOCATABLE :: FluxesCount(:)
+    LOGICAL :: PrecRecompute, Stat, Found, ComputeFluxes, ComputeAverages, Symmetric, IsComplex
+    REAL(KIND=dp), POINTER CONTIG :: PValues(:), Fluxes(:)
+    REAL(KIND=dp), ALLOCATABLE, TARGET :: res(:)
+    REAL(KIND=dp), ALLOCATABLE :: FluxesMatrix(:,:), Values0(:), b0(:)    
     REAL(KIND=dp) :: flux
+    LOGICAL, ALLOCATABLE :: ConstrainedDof0(:)
     COMPLEX(KIND=dp), ALLOCATABLE :: CFluxesMatrix(:,:)
     COMPLEX(KIND=dp) :: cflux
-    CHARACTER(LEN=MAX_NAME_LEN) :: MatrixFile, MatrixStr
+    CHARACTER(LEN=MAX_NAME_LEN) :: MatrixFile, MatrixStr    
     CHARACTER(*), PARAMETER :: Caller = 'SolveConstraintModesSystem'
     !------------------------------------------------------------------------------
     n = A % NumberOfRows
@@ -14039,14 +14039,29 @@ SUBROUTINE SolveConstraintModesSystem( A, x, b, Solver )
     END IF
 
     IsComplex = ListGetLogical( Solver % Values,'Linear System Complex',Found)
+    IF( IsComplex ) THEN
+      NComplex = 2
+    ELSE
+      Ncomplex = 1
+    END IF
     
     ComputeFluxes = ListGetLogical( Solver % Values,'Constraint Modes Fluxes',Found) 
     IF(.NOT. Found) ComputeFluxes = ListGetLogical( Solver % Values,'Constraint Modes Matrix',Found)
- 
-    IF( ComputeFluxes ) THEN
+
+    ComputeAverages = ListGetLogical( Solver % Values,'Constraint Modes Averages',Found) 
+    
+    
+    IF( ComputeFluxes .OR. ComputeAverages ) THEN
       CALL Info(Caller,'Allocating for lumped fluxes',Level=10)
-      ALLOCATE( Fluxes( n ) )
-      Fluxes = 0.0_dp
+      IF( ComputeFluxes ) THEN
+        ALLOCATE( res( n ) )
+        res = 0.0_dp
+        Fluxes => res
+      ELSE
+        Fluxes => x
+      END IF
+      ALLOCATE( FluxesCount( m ) ) 
+      FluxesCount = 0
       IF( IsComplex ) THEN        
         ALLOCATE( CFluxesMatrix( m, m ) )
         CFluxesMatrix = 0.0_dp
@@ -14055,32 +14070,54 @@ SUBROUTINE SolveConstraintModesSystem( A, x, b, Solver )
         FluxesMatrix = 0.0_dp
       END IF
     END IF
+
+    ! For complex system the ports do not have Dirichlet conditions.
+    IF( IsComplex ) THEN
+      ALLOCATE( Values0(SIZE(A % Values)), ConstrainedDOF0(n), b0(n) )
+      Values0 = A % Values
+      b0 = b
+      ConstrainedDof0 = A % ConstrainedDof
+    END IF
     
 
-    DO i=1,m
-      CALL Info(Caller,'Solving for mode: '//TRIM(I2S(i)),Level=6)
+    DO Nmode=1,m
+      CALL Info(Caller,'Solving for mode: '//TRIM(I2S(Nmode)),Level=6)
 
-      IF( i == 2 ) THEN
+      IF( Nmode == 2 ) THEN
         CALL ListAddLogical( Solver % Values,'No Precondition Recompute',.TRUE.)
-      END IF
-
+      END IF      
+      
       IF( IsComplex ) THEN
-        Nmode = 2*i-1
+        ! For complex system the BCs are Dirichlet-Neumann, not Dirichlet-Dirichlet
+        ! Hence relaxing the conditions is little bit more complex.
+        A % Values = Values0
+        A % ConstrainedDof = ConstrainedDof0
+        b = b0
+        DO j=1,A % NumberOfRows / 2
+          IF( Var % ConstraintModesIndeces(j) == Nmode ) THEN
+            A % ConstrainedDof(2*j-1:2*j) = .TRUE.
+            A % DValues(2*j-1) = 1.0_dp
+            A % DValues(2*j) = 0.0_dp
+          END IF
+        END DO
+        CALL EnforceDirichletConditions( Solver, A, b )
       ELSE
-        Nmode = i
+        ! The matrix has been manipulated already before. This ensures
+        ! that the system has values 1 at the constraint mode i.
+        WHERE( Var % ConstraintModesIndeces == Nmode ) b = A % Values(A % Diag)
       END IF
-      
-      ! The matrix has been manipulated already before. This ensures
-      ! that the system has values 1 at the constraint mode i.
-      WHERE( Var % ConstraintModesIndeces == Nmode ) b = A % Values(A % Diag)
-      
+        
       CALL SolveSystem( A,ParMatrix,b,x,Var % Norm,Var % DOFs,Solver )
 
-      WHERE( Var % ConstraintModesIndeces == Nmode ) b = 0.0_dp
+      IF(.NOT. IsComplex ) THEN
+        ! Revert the non-complex system back to having zero Dirichlet BCs
+        WHERE( Var % ConstraintModesIndeces == Nmode ) b = 0.0_dp
+      END IF
 
+      ! Store constraint modes
+      Var % ConstraintModes(Nmode,:) = x
 
-      Var % ConstraintModes(i,:) = x
-
+      ! Compute nodal loads / reaction forces
       IF( ComputeFluxes ) THEN
         CALL Info(Caller,'Computing lumped fluxes',Level=8)
         PValues => A % Values
@@ -14088,39 +14125,57 @@ SUBROUTINE SolveConstraintModesSystem( A, x, b, Solver )
           CALL Fatal('SolveConstraintModesSystem','BulkValues not associated!')
         END IF
         A % Values => A % BulkValues
-        Fluxes = 0.0_dp
-        CALL MatrixVectorMultiply( A, x, Fluxes ) 
+        res = 0.0_dp
+        CALL MatrixVectorMultiply( A, x, res )
         A % Values => PValues
+      END IF
+      
+      IF( ComputeFluxes .OR. ComputeAverages ) THEN
+        DO j=1,n / Ncomplex
+          Mmode = Var % ConstraintModesIndeces(j)
+          IF( Mmode == 0 ) CYCLE
 
-        DO j=1,n
-          k = Var % ConstraintModesIndeces(j)
-          IF( k > 0 ) THEN
-            IF( IsComplex ) THEN
-              Mmode = (k+1)/2
-              IF( MOD(k,2) == 1 ) THEN                
-                cflux = CMPLX( Fluxes(j), 0.0_dp, KIND=dp )
-              ELSE
-                cflux = CMPLX( 0.0_dp, Fluxes(j), KIND=dp )               
-              END IF
+          IF(Nmode==1) THEN
+            FluxesCount(Mmode) = FluxesCount(Mmode) + 1
+          END IF          
+          
+          IF( IsComplex ) THEN
+            cflux = CMPLX( Fluxes(2*j-1), Fluxes(2*j) )
+            IF( ComputeAverages ) THEN
+              CFluxesMatrix(Nmode,Mmode) = CFluxesMatrix(Nmode,Mmode) + cflux
+            ELSE
               IF( Nmode /= Mmode ) THEN
                 CFluxesMatrix(Nmode,Mmode) = CFluxesMatrix(Nmode,Mmode) - cflux
               END IF
               CFluxesMatrix(Nmode,Nmode) = CFluxesMatrix(Nmode,Nmode) + cflux
-            ELSE
-              Mmode = k 
-              flux = Fluxes(j) 
+            END IF
+          ELSE
+            flux = Fluxes(j)
+            IF( ComputeAverages ) THEN
+              FluxesMatrix(Nmode,Mmode) = FluxesMatrix(Nmode,Mmode) + cflux
+            ELSE              
               IF( Nmode /= Mmode ) THEN
                 FluxesMatrix(Nmode,Mmode) = FluxesMatrix(NMode,Mmode) - flux
               END IF
               FluxesMatrix(Nmode,Nmode) = FluxesMatrix(Nmode,Nmode) + flux
             END IF
           END IF
+
         END DO
+
+        IF( ComputeAverages ) THEN
+          IF( IsComplex ) THEN
+            CFluxesMatrix(Nmode,:) = CFluxesMatrix(Nmode,:) / FluxesCount(:)
+          ELSE
+            FluxesMatrix(Nmode,:) = FluxesMatrix(Nmode,:) / FluxesCount(:)
+          END IF
+        END IF
+
       END IF
     END DO
 
     
-    IF( ComputeFluxes ) THEN
+    IF( ComputeFluxes .OR. ComputeAverages ) THEN
       Symmetric = ListGetLogical( Solver % Values,&
           'Constraint Modes Fluxes Symmetric', Found )
       IF(.NOT. Found) Symmetric = ListGetLogical( Solver % Values,&
@@ -14178,16 +14233,14 @@ SUBROUTINE SolveConstraintModesSystem( A, x, b, Solver )
         CALL Info( Caller,&
             'Constraint modes fluxes was saved to file '//TRIM(MatrixFile),Level=5)
       END IF
-      
-      DEALLOCATE( Fluxes )
-      IF( IsComplex ) THEN
-        DEALLOCATE( CFluxesMatrix )
-      ELSE
-        DEALLOCATE( FluxesMatrix ) 
-      END IF 
+
     END IF
 
     CALL ListAddLogical( Solver % Values,'No Precondition Recompute',.FALSE.)
+
+    ! We trust that these are automatically deallocated as they should:
+    ! res, FluxesMatrix, CFluxesMatrix, FluxesCount
+    ! Values0, ConstrainedDOF0, b0
     
 !------------------------------------------------------------------------------
   END SUBROUTINE SolveConstraintModesSystem
