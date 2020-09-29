@@ -5,4 +5,4 @@ CONFIGURE_FILE(case.sif case.sif COPYONLY)
 
 file(COPY channels.grd ELMERSOLVER_STARTINFO DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/")
 
-ADD_ELMER_TEST(HelmholtzSolveImpMatrix LABELS helmholtz)
+ADD_ELMER_TEST(ImpedanceMatrixHelmholtz LABELS helmholtz)
