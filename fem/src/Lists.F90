@@ -2705,7 +2705,12 @@ use spariterglobals
 
       IF ( PRESENT(Proc) ) ptr % PROCEDURE = Proc
 
-      ptr % TYPE = LIST_TYPE_CONSTANT_TENSOR
+      IF( n == 1 ) THEN
+        ptr % TYPE = LIST_TYPE_INTEGER
+      ELSE
+        ptr % TYPE = LIST_TYPE_CONSTANT_TENSOR
+      END IF
+      
       ptr % IValues(1:n) = IValues(1:n)
 
       ptr % NameLen = StringToLowerCase( ptr % Name,Name )
@@ -2992,6 +2997,10 @@ use spariterglobals
        RETURN
      END IF
 
+     IF( ptr % type /= LIST_TYPE_INTEGER ) THEN
+       CALL Fatal('ListGetInteger','Invalid list type for: '//TRIM(Name))
+     END IF
+     
      IF ( ptr % PROCEDURE /= 0 ) THEN
        CALL ListPushActiveName(Name)
        L = ExecIntFunction( ptr % PROCEDURE, CurrentModel )
@@ -3050,13 +3059,12 @@ use spariterglobals
          END IF
        END IF
        RETURN
-     END IF
-
+     END IF     
+     
      IF ( .NOT. ASSOCIATED(ptr % IValues) ) THEN
-       WRITE(Message,*) 'VALUE TYPE for property [', TRIM(Name), &
+       WRITE(Message,*) 'Value type for property [', TRIM(Name), &
                '] not used consistently.'
        CALL Fatal( 'ListGetIntegerArray', Message )
-       RETURN
      END IF
 
      n = SIZE(ptr % IValues)
@@ -3132,7 +3140,13 @@ use spariterglobals
        END IF
        RETURN
      END IF
-     L = ptr % Lvalue
+
+     IF(ptr % TYPE == LIST_TYPE_LOGICAL ) THEN
+       L = ptr % Lvalue
+     ELSE
+       CALL Fatal('ListGetLogical','Invalid list type for: '//TRIM(Name))
+     END IF
+     
 !------------------------------------------------------------------------------
    END FUNCTION ListGetLogical
 !------------------------------------------------------------------------------
@@ -3172,6 +3186,8 @@ use spariterglobals
        L = ( RVal > 0.0_dp )
      ELSE
        L = .TRUE.
+       !Mere presence implies true mask
+       !CALL Fatal('ListGetLogicalGen','Invalid list type for: '//TRIM(Name))
      END IF
      
 !------------------------------------------------------------------------------
@@ -3203,7 +3219,13 @@ use spariterglobals
        END IF
        RETURN
      END IF
-     S = ptr % Cvalue
+     
+     IF( ptr % Type == LIST_TYPE_STRING ) THEN     
+       S = ptr % Cvalue
+     ELSE
+       CALL Fatal('ListGetString','Invalid list type: '//TRIM(Name))
+     END IF
+       
 !------------------------------------------------------------------------------
    END FUNCTION ListGetString
 !------------------------------------------------------------------------------
@@ -3278,6 +3300,12 @@ use spariterglobals
            ExecConstRealFunction( ptr % PROCEDURE,CurrentModel,xx,yy,zz )
        CALL ListPopActiveName()
 
+     CASE( LIST_TYPE_VARIABLE_SCALAR, LIST_TYPE_VARIABLE_SCALAR_STR )       
+       CALL Fatal('ListGetConstReal','Constant cannot depend on variables: '//TRIM(Name))
+
+     CASE DEFAULT
+       CALL Fatal('ListGetConstReal','Invalid list type for: '//TRIM(Name))       
+       
      END SELECT
 
      IF ( PRESENT( minv ) ) THEN
@@ -3553,9 +3581,6 @@ use spariterglobals
 !------------------------------------------------------------------------------
   END FUNCTION ListGetSectionId
 !------------------------------------------------------------------------------
-
-
-  
 
 
   

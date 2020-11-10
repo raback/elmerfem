@@ -118,8 +118,9 @@
      TYPE(Model_t), POINTER, SAVE :: Control
      CHARACTER(LEN=MAX_NAME_LEN) :: MeshDir, MeshName
      LOGICAL :: DoControl, GotParams
-     INTEGER :: nr
+     INTEGER :: nr,ni
      REAL(KIND=dp), ALLOCATABLE :: rpar(:)
+     INTEGER, ALLOCATABLE :: ipar(:)
      
 #ifdef HAVE_TRILINOS
 INTERFACE
@@ -169,9 +170,25 @@ END INTERFACE
                CALL GET_COMMAND_ARGUMENT(i, OptionString)
                READ( OptionString,*) rpar(j)
              END DO
-             CALL Info('MAIN','Read '//TRIM(I2S(nr))//' parameters from command line!')
-             CALL SetParametersMATC(nr,rpar)
+             CALL Info('MAIN','Read '//TRIM(I2S(nr))//' real parameters from command line!')
+             CALL SetRealParametersMATC(nr,rpar)
            END IF
+
+           IF( OptionString=='-ipar' ) THEN
+             ! Followed by number of paramters + the parameter values
+             i = i + 1
+             CALL GET_COMMAND_ARGUMENT(i, OptionString)
+             READ( OptionString,*) ni             
+             ALLOCATE( ipar(nr) )
+             DO j=1,ni
+               i = i + 1
+               CALL GET_COMMAND_ARGUMENT(i, OptionString)
+               READ( OptionString,*) ipar(j)
+             END DO
+             CALL Info('MAIN','Read '//TRIM(I2S(ni))//' integer parameters from command line!')
+             CALL SetIntegerParametersMATC(ni,ipar)
+           END IF
+
            Silent = Silent .OR. &
                ( OptionString=='-s' .OR. OptionString=='--silent' ) 
            Version = Version .OR. &
@@ -551,6 +568,12 @@ END INTERFACE
 !------------------------------------------------------------------------------
      IF ( Initialize /= 1 ) CALL Info( 'ElmerSolver', '*** Elmer Solver: ALL DONE ***',Level=3 )
 
+     ! This may be used to study problems at the finish
+     IF( ListGetLogical( CurrentModel % Simulation,'Dirty Finish', GotIt ) ) THEN
+       CALL Info('ElmerSolver','Skipping freeing of the Model structure',Level=4)
+       RETURN
+     END IF
+     
      IF ( Initialize <= 0 ) CALL FreeModel(CurrentModel)
 
 #ifdef HAVE_TRILINOS
@@ -779,7 +802,7 @@ END INTERFACE
          
          IF( Success ) THEN
            CALL Info('CompareToReferenceSolution',&
-               'PASSED all '//TRIM(I2S(TestCount))//' tests!',Level=4)
+               'PASSED all '//TRIM(I2S(TestCount))//' tests!',Level=3)
          ELSE         
            CALL Warn('CompareToReferenceSolution','FAILED '//TRIM(I2S(FailCount))//&
                ' tests out of '//TRIM(I2S(TestCount))//'!')
@@ -858,15 +881,14 @@ END INTERFACE
            ELSE         
              WRITE( Message,'(A,I0,A,ES15.8,A,ES15.8)') &
                  'Solver ',solver_id,' PASSED:  Norm =',Norm,'  RefNorm =',RefNorm
-             CALL Info('CompareToReferenceSolution',Message,Level=4)
+             CALL Info('CompareToReferenceSolution',Message,Level=3)
            END IF
            IF( AbsoluteErr ) THEN
              WRITE( Message,'(A,ES13.6)') 'Absolute Error to reference norm:',Err
            ELSE
              WRITE( Message,'(A,ES13.6)') 'Relative Error to reference norm:',Err
            END IF
-           CALL Info('CompareToReferenceSolution',Message, Level = 4 )
-
+           CALL Info('CompareToReferenceSolution',Message, Level = 3 )
          END IF
 
          IF( CompareSolution ) THEN
@@ -908,13 +930,13 @@ END INTERFACE
                    'Solver ',solver_id,' FAILED:  Solution = ',Norm,'  RefSolution =',RefNorm
                CALL Warn('CompareToReferenceSolution',Message)
                WRITE( Message,'(A,ES13.6)') 'Relative Error to reference solution:',Err
-               CALL Info('CompareToReferenceSolution',Message, Level = 4 )
+               CALL Info('CompareToReferenceSolution',Message, Level = 3 )
              END IF
              Success = .FALSE.
            ELSE         
              WRITE( Message,'(A,I0,A,ES15.8,A,ES15.8)') &
                  'Solver ',solver_id,' PASSED:  Solution =',Norm,'  RefSolution =',RefNorm
-             CALL Info('CompareToReferenceSolution',Message,Level=4)
+             CALL Info('CompareToReferenceSolution',Message,Level=3)
            END IF
          END IF
 
@@ -2179,6 +2201,10 @@ END INTERFACE
            END IF
            IF(GotIt) THEN
              dt = dtfunc
+             IF(dt < EPSILON(dt) ) THEN
+               WRITE(Message,'(A,ES12.3)') 'Timestep smaller than epsilon: ',dt
+               CALL Fatal('ExecSimulation', Message)
+             END IF             
            ELSE
              dt = TimestepSizes(interval,1)
            END IF

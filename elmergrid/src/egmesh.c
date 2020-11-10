@@ -1502,7 +1502,7 @@ void CreateKnots(struct GridType *grid,struct CellType *cell,
 
 
 int CreateVariable(struct FemType *data,int variable,int unknowns,
-		   Real value,char *dofname,int eorder)
+		   Real value,const char *dofname,int eorder)
 /* Create variables for the given data structure */
 {
   int i,info=FALSE;
@@ -1580,51 +1580,12 @@ void DestroyKnots(struct FemType *data)
   free_Rvector(data->y,1,data->noknots);
   free_Rvector(data->z,1,data->noknots);
 
+  data->noknots = 0;
+  data->noelements = 0;
+  data->maxnodes = 0;
+
   if(data->nocorners > 0)
     free_Ivector(data->corners,1,2*data->nocorners);
-}
-
-
-
-void SideAreas(struct FemType *data,struct BoundaryType *bound)
-/* Calculate the sideares for later use into structure 'bound'. 
-   In 2D case the area means line length.
-   */
-{
-  int i,ind[MAXNODESD1],sideelemtype;  
-  Real r1,r2,z1,z2;
-
-  if(data->mapgeo == bound->maparea) 
-    return;
-
-  bound->totalarea = 0.;
-
-  if(data->dim != 2) {
-    return;
-  }
-
-
-  for(i=1; i<=bound->nosides; i++) {
-
-    GetElementSide(bound->parent[i],bound->side[i],bound->normal[i],
-		   data,ind,&sideelemtype);
-
-    r1 = data->x[ind[0]];
-    r2 = data->x[ind[1]];
-    z1 = data->y[ind[0]];
-    z2 = data->y[ind[1]];
-
-    if(bound->coordsystem == COORD_CART2) 
-      bound->areas[i] = sqrt( (z1-z2)*(z1-z2) + (r1-r2)*(r1-r2) );
-    else if(bound->coordsystem == COORD_AXIS)  
-      bound->areas[i] = FM_PI * (r1+r2) * 
-	sqrt( (z1-z2)*(z1-z2) + (r1-r2)*(r1-r2) );
-    else if(bound->coordsystem == COORD_POLAR) 
-      bound->areas[i] = fabs((z2-z1)*(r1+r2)/2.0);
-
-    bound->totalarea += bound->areas[i];
-  }
-  bound->maparea = data->mapgeo;
 }
 
 
@@ -1692,12 +1653,6 @@ startpoint:
 
       /* The free boundary conditions are not allowed if the negative
 	 keywords are used. */
-
-#if 0
-      /* This has been eliminated since it just causes confusion */
-      if(sidemat == MAT_ORIGO  &&  material1 != MAT_ORIGO  &&
-	 (material1 <= MAT_BIGGER || material2 <= MAT_BIGGER)) continue;
-#endif
 
       /* Either material must be the one defined. */
       if( material1 >= 0  &&  material1 != sidemat) continue;
@@ -1779,11 +1734,7 @@ startpoint:
     bound->created = TRUE;
     bound->nosides = size = nosides;
     bound->coordsystem = data->coordsystem;
-    bound->fixedpoints = 1;
-    bound->open = FALSE;
-    bound->maparea = 0;
     bound->types = Ivector(1,nosides);
-    bound->areas = Rvector(1,nosides);
     bound->side = Ivector(1,nosides);
     bound->side2 = Ivector(1,nosides);
     bound->material = Ivector(1,nosides);    
@@ -1794,14 +1745,9 @@ startpoint:
     bound->echain = FALSE;
     bound->ediscont = FALSE;
 
-    for(i=0;i<MAXVARS;i++) 
-      bound->evars[i] = FALSE;
-
     goto startpoint;
   }
   
-  /* Calculate the areas of the side elements. */
-  SideAreas(data,bound);  
   if(info) printf("%d element sides between materials %d and %d were located to type %d.\n",
 		  nosides,material1,material2,boundarytype); 
 
@@ -1820,13 +1766,9 @@ int AllocateBoundary(struct BoundaryType *bound,int size)
     
   bound->created = TRUE;
   bound->nosides = size;
-  bound->fixedpoints = 1;
-  bound->open = FALSE;
-  bound->maparea = 0;
   bound->echain = FALSE;
   bound->ediscont = FALSE;
 
-  bound->areas = Rvector(1,size);
   bound->material = Ivector(1,size);    
   bound->side = Ivector(1,size);
   bound->side2 = Ivector(1,size);
@@ -1836,7 +1778,6 @@ int AllocateBoundary(struct BoundaryType *bound,int size)
   bound->normal = Ivector(1,size);
 
   for(i=1;i<=size;i++) {
-    bound->areas[i] = 0.0;
     bound->material[i] = 0;
     bound->side[i] = 0;
     bound->side2[i] = 0;
@@ -1845,9 +1786,6 @@ int AllocateBoundary(struct BoundaryType *bound,int size)
     bound->types[i] = 0;
     bound->normal[i] = 1;
   }
-
-  for(i=0;i<MAXVARS;i++) 
-    bound->evars[i] = FALSE;
 
   return(0);
 }
@@ -1860,7 +1798,6 @@ int DestroyBoundary(struct BoundaryType *bound)
   int i,nosides;
 
   if(!bound->created) {
-    printf("DestroyBoundary: boundary does not exist.");
     return(1);
   }
   nosides = bound->nosides;
@@ -1869,17 +1806,13 @@ int DestroyBoundary(struct BoundaryType *bound)
     return(2);
   }
 
-  free_Rvector(bound->areas,1,nosides);
   free_Ivector(bound->material,1,nosides);
   free_Ivector(bound->side,1,nosides);
   free_Ivector(bound->side2,1,nosides);
   free_Ivector(bound->parent,1,nosides);
   free_Ivector(bound->parent2,1,nosides);
-
-  for(i=0;i<MAXVARS;i++) 
-    if(bound->evars[i]) {
-      bound->evars[i] = 0;
-    }
+  free_Ivector(bound->types,1,nosides);
+  free_Ivector(bound->normal,1,nosides);
 
   bound->nosides = 0;
   bound->created = FALSE;
@@ -2010,7 +1943,7 @@ omstart:
 
 
 
-static int CreateNewNodes(struct FemType *data,int *order,int material,int new)
+int CreateNewNodes(struct FemType *data,int *order,int material,int newknots)
 {
   int i,j,k,l,lmax,ind;
   int newsize,noknots,nonodes;
@@ -2020,10 +1953,10 @@ static int CreateNewNodes(struct FemType *data,int *order,int material,int new)
 
   noknots = data->noknots;
 
-  printf("Creating %d new nodes for discontinuous boundary.\n",new);
+  printf("Creating %d new nodes for discontinuous boundary.\n",newknots);
 
   /* Allocate for the new nodes */
-  newsize = noknots+new;
+  newsize = noknots+newknots;
   newx = Rvector(1,newsize);
   newy = Rvector(1,newsize);
   newz = Rvector(1,newsize);
@@ -2117,7 +2050,7 @@ int SetDiscontinuousBoundary(struct FemType *data,struct BoundaryType *bound,
    */
 {
   int i,j,bc,ind,sideind[MAXNODESD1];
-  int side,parent,new,doublesides,maxtype,newbc;
+  int side,parent,newnodes,doublesides,maxtype,newbc;
   int newsuccess,noelements,nonodes,sideelemtype,sidenodes,disconttype;
   int *order=NULL;
   int mat1,mat2,par1,par2,mat1old,mat2old,material;
@@ -2225,7 +2158,7 @@ int SetDiscontinuousBoundary(struct FemType *data,struct BoundaryType *bound,
 
   
   /* Find the number of new nodes */
-  new = 0;
+  newnodes = 0;
 
   for(bc=0;bc<MAXBOUNDARIES;bc++) {
 
@@ -2253,30 +2186,30 @@ int SetDiscontinuousBoundary(struct FemType *data,struct BoundaryType *bound,
 	
 	if(endnodes == 2) {
 	  if(order[ind] > 0) {
-	    new++;
-	    order[ind] = -new;
+	    newnodes++;
+	    order[ind] = -newnodes;
 	  }
 	}
 	else if(endnodes == 0) {
 	  if(order[ind] > 0)
 	    order[ind] = 0;
 	  else if(order[ind] == 0) {
-	    new++;
-	    order[ind] = -new;	
+	    newnodes++;
+	    order[ind] = -newnodes;	
 	  }
 	}
 	else if(endnodes == 1) {
 	  if(order[ind] > 0) {
 	    if(hits[ind] < 4) {
-	      new++;
-	      order[ind] = -new;	    
+	      newnodes++;
+	      order[ind] = -newnodes;	    
 	    }
 	    else
 	      order[ind] = 0;
 	  }
 	  else if(order[ind] == 0) {
-	    new++;
-	    order[ind] = -new;	
+	    newnodes++;
+	    order[ind] = -newnodes;	
 	  }
 	}
 	
@@ -2290,9 +2223,9 @@ int SetDiscontinuousBoundary(struct FemType *data,struct BoundaryType *bound,
     }
   }
 
-  if(new == 0) return(3);
+  if(newnodes == 0) return(3);
     
-  newsuccess = CreateNewNodes(data,order,material,new);
+  newsuccess = CreateNewNodes(data,order,material,newnodes);
   return(newsuccess);
 }
 
@@ -2508,50 +2441,6 @@ int SetConnectedElements(struct FemType *data,int info)
   }
 
   return(0);
-}
-
-
-
-
-int SetDiscontinuousPoints(struct FemType *data,struct PointType *point,
-			   int material)
-/* Create secondary point for a given point. 
-   The variable that is used to set up the boundary must not 
-   have any previously defined Dirichlet points. 
-   */
-{
-  int i,ind,corner,*order=NULL;
-  int parent,new;
-  int newsuccess;
-
-  if(point->nopoints == FALSE) {
-    printf("SetDiscontinuousPoint: No points exists!\n");
-    return(0);
-  }
-
-  order = Ivector(1,data->noknots);
-  for(i=1;i<=data->noknots;i++) 
-    order[i] = i;
-
-  
-  /* Find the number of new nodes */
-  new = 0;
-  for(i=0;i<point->nopoints;i++) {
-    parent = point->parent[i];
-    corner = point->corner[i];
-    ind = data->topology[parent][corner];
-    if(order[ind] >= 0) {
-      new++;
-      order[ind] = -new;
-    }
-  }
-
-  if(new == 0)
-    return(0);
-
-  newsuccess = CreateNewNodes(data,order,material,new);
-  
-  return(newsuccess);
 }
 
 
@@ -3171,7 +3060,6 @@ int UniteMeshes(struct FemType *data1,struct FemType *data2,
     bound1[k].side2 = bound2[j].side2;
     bound1[k].parent = bound2[j].parent;
     bound1[k].parent2 = bound2[j].parent2;
-    bound1[k].areas = bound2[j].areas;
     bound1[k].material = bound2[j].material;
     bound1[k].echain = bound2[j].echain;
     bound1[k].types = bound2[j].types;
@@ -3278,7 +3166,6 @@ int CloneMeshes(struct FemType *data,struct BoundaryType *bound,
 
   int *vparent=NULL,*vparent2=NULL,*vside=NULL,*vside2=NULL;
   int *vtypes=NULL,*vmaterial=NULL,*vnormal=NULL,*vdiscont=NULL;
-  Real *vareas=NULL; 
   
   if(info) printf("CloneMeshes: copying the mesh to a matrix\n");
   if(diffmats) {
@@ -3391,7 +3278,6 @@ int CloneMeshes(struct FemType *data,struct BoundaryType *bound,
     vside2 = Ivector(1, nosides);
     vmaterial = Ivector(1, nosides);
     vtypes = Ivector(1, nosides);
-    vareas = Rvector(1, nosides);
     vnormal = Ivector(1, nosides);
 
     if(bound[bndr].ediscont) { 
@@ -3427,7 +3313,6 @@ int CloneMeshes(struct FemType *data,struct BoundaryType *bound,
 
 	    vtypes[ind] = bound[bndr].types[i] + diffmats * ncopy * maxtype;
 
-	    vareas[ind] = bound[bndr].areas[i];
 	    vmaterial[ind] = bound[bndr].material[i] + ncopy * maxmaterial;
 	  }
 	}
@@ -3441,7 +3326,6 @@ int CloneMeshes(struct FemType *data,struct BoundaryType *bound,
     bound[bndr].parent = vparent;
     bound[bndr].parent2 = vparent2;
     bound[bndr].types = vtypes;
-    bound[bndr].areas = vareas;
     bound[bndr].material = vmaterial;
     if(bound[bndr].ediscont) 
       bound[bndr].discont = vdiscont;
@@ -3489,7 +3373,6 @@ int MirrorMeshes(struct FemType *data,struct BoundaryType *bound,
 
   int *vparent=NULL,*vparent2=NULL,*vside=NULL,*vside2=NULL;
   int *vtypes=NULL,*vmaterial=NULL,*vnormal=NULL,*vdiscont=NULL;
-  Real *vareas=NULL; 
   
   printf("MirrorMeshes: making a symmetric mapping of the mesh\n");
 
@@ -3599,7 +3482,6 @@ int MirrorMeshes(struct FemType *data,struct BoundaryType *bound,
     vside2 = Ivector(1, nosides);
     vmaterial = Ivector(1, nosides);
     vtypes = Ivector(1, nosides);
-    vareas = Rvector(1, nosides);
     vnormal = Ivector(1, nosides);
 
     if(bound[bndr].ediscont) { 
@@ -3633,7 +3515,6 @@ int MirrorMeshes(struct FemType *data,struct BoundaryType *bound,
 
 	    vtypes[ind] = bound[bndr].types[i] + diffmats * symmcount * maxtype;
 	    
-	    vareas[ind] = bound[bndr].areas[i];
 	    vmaterial[ind] = bound[bndr].material[i];
 	  }
 
@@ -3650,7 +3531,6 @@ int MirrorMeshes(struct FemType *data,struct BoundaryType *bound,
     bound[bndr].parent = vparent;
     bound[bndr].parent2 = vparent2;
     bound[bndr].types = vtypes;
-    bound[bndr].areas = vareas;
     bound[bndr].material = vmaterial;
     if(bound[bndr].ediscont) 
       bound[bndr].discont = vdiscont;
@@ -6131,7 +6011,6 @@ void CreateKnotsExtruded(struct FemType *dataxy,struct BoundaryType *boundxy,
     if(boundxy[j].created || j>=data->noboundaries) {
       bound[j] = boundxy[j];
       bound[j].created = TRUE;
-      bound[j].areasexist = FALSE;
 
       size = bound[j].nosides = boundxy[j].nosides * grid->totzelems; 
       if(j >= data->noboundaries) size = dataxy->noelements;
@@ -7555,6 +7434,78 @@ void ElementsToBoundaryConditions(struct FemType *data,
   return;
 }
 
+
+int SideAndBulkMappings(struct FemType *data,struct BoundaryType *bound,struct ElmergridType *eg,int info)
+{
+  int i,j,l,currenttype;
+  
+
+  if(eg->sidemappings) {
+    for(l=0;l<eg->sidemappings;l++) 
+      if(info) printf("Setting boundary types between %d and %d to %d\n",
+		      eg->sidemap[3*l],eg->sidemap[3*l+1],eg->sidemap[3*l+2]);
+
+    for(j=0;j < MAXBOUNDARIES;j++) {
+      if(!bound[j].created) continue;
+	
+	for(i=1; i <= bound[j].nosides; i++) {
+	  if(currenttype = bound[j].types[i]) {
+	    for(l=0;l<eg->sidemappings;l++) {
+	      if(currenttype >= eg->sidemap[3*l] && currenttype <= eg->sidemap[3*l+1]) {
+		bound[j].types[i] = eg->sidemap[3*l+2];
+		currenttype = -1;
+	      }
+	    }
+	  }
+	}
+    }
+    if(info) printf("Renumbering boundary types finished\n");
+  }
+  
+  if(eg->bulkmappings) {
+    for(l=0;l<eg->bulkmappings;l++) 
+      if(info) printf("Setting material types between %d and %d to %d\n",
+		      eg->bulkmap[3*l],eg->bulkmap[3*l+1],eg->bulkmap[3*l+2]);
+    for(j=1;j<=data->noelements;j++) {
+      currenttype = data->material[j];
+      for(l=0;l<eg->bulkmappings;l++) {
+	if(currenttype >= eg->bulkmap[3*l] && currenttype <= eg->bulkmap[3*l+1]) {
+	  data->material[j] = eg->bulkmap[3*l+2];
+	  currenttype = -1;
+	}
+      }
+    }
+    if(info) printf("Renumbering material indexes finished\n");
+  }
+  return(0);
+}
+
+
+
+int SideAndBulkBoundaries(struct FemType *data,struct BoundaryType *bound,struct ElmergridType *eg,int info)
+{
+  int l;
+  int *boundnodes,noboundnodes;
+  boundnodes = Ivector(1,data->noknots);
+      
+  if(eg->bulkbounds) {
+    for(l=0;l<eg->bulkbounds;l++) {
+      FindBulkBoundary(data,eg->bulkbound[3*l],eg->bulkbound[3*l+1],
+		       boundnodes,&noboundnodes,info);
+      FindNewBoundaries(data,bound,boundnodes,eg->bulkbound[3*l+2],1,info);
+    }
+  }
+  if(eg->boundbounds) {
+    for(l=0;l<eg->boundbounds;l++) {	
+      FindBoundaryBoundary(data,bound,eg->boundbound[3*l],eg->boundbound[3*l+1],
+			   boundnodes,&noboundnodes,info);
+      FindNewBoundaries(data,bound,boundnodes,eg->boundbound[3*l+2],2,info);
+    }
+  }
+  free_Ivector(boundnodes,1,data->noknots);
+
+  return(0);
+}
 
 
 void NodesToBoundaryChain(struct FemType *data,struct BoundaryType *bound,

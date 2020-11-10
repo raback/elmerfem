@@ -54,7 +54,8 @@
 #include "egparallel.h" 
 
 
-#define getline fgets(line,MAXLINESIZE,in) 
+#define GETLINE ioptr=fgets(line,MAXLINESIZE,in) 
+static char *ioptr;
 
 
 int SaveCellInfo(struct GridType *grid,struct CellType *cell,
@@ -112,15 +113,9 @@ int SaveBoundary(struct FemType *data,struct BoundaryType *bound,
 
     GetElementSide(bound->parent[i],bound->side[i],bound->normal[i],data,sideind,&sideelemtype);
 
-    fprintf(out,"%-12.4le %-12.4le %-12.4le %-12.4le ",
+    fprintf(out,"%-12.4le %-12.4le %-12.4le %-12.4le\n",
 	    data->x[sideind[0]],data->x[sideind[1]],
 	    data->y[sideind[0]],data->y[sideind[1]]);
-    for(k=0;k<MAXVARS;k++) 
-      if(bound->evars[k]) {
-	if(bound->points[k] == 1) 
-	  fprintf(out,"%-10.4le ",bound->vars[k][i]);
-      }		
-    fprintf(out,"\n");
   }
 
   fclose(out);
@@ -255,21 +250,6 @@ int SaveBoundariesChain(struct FemType *data,struct BoundaryType *bound,
 	ind = bound[j].chain[i];
 	fprintf(out,"%-10.4le %-10.4le %-6d ",
 		data->x[ind],data->y[ind],ind);
-	for(k=0;k<MAXVARS;k++) 
-	  if(bound[j].evars[k]) {
-	    if(bound[j].points[k] == 0)
-	      fprintf(out,"%-10.4le ",bound[j].vars[k][i]);
-	    else if(bound[j].points[k] == 1) {
-	      if(i==0)
-		fprintf(out,"%-10.4le ",bound[j].vars[k][1]);		
-	      else if(i==length)
-		fprintf(out,"%-10.4le ",bound[j].vars[k][length]);		
-	      else
-		fprintf(out,"%-10.4le ",
-			0.5*(bound[j].vars[k][i]+bound[j].vars[k][i+1]));	
-	    }
-	  }
-
 	for(k=0;k<MAXDOFS;k++) {
 	  if(data->edofs[k] == 1) 
 	    fprintf(out,"%-10.4le  ",data->dofs[k][ind]);
@@ -299,9 +279,6 @@ int SaveBoundariesChain(struct FemType *data,struct BoundaryType *bound,
       }
       fprintf(out,"col3: node indices\n");
       col = 3;
-      for(k=0;k<MAXVARS;k++) 
-	if(bound[j].evars[k] && bound[j].points[k] <= 1) 
-	  fprintf(out,"col%d: %s\n",++col,bound[j].varname[k]);	  
       for(k=0;k<MAXDOFS;k++) {
 	if(data->edofs[k] == 1) 
 	  fprintf(out,"col%d: %s\n",++col,data->dofname[k]);	  
@@ -577,7 +554,7 @@ int LoadSolutionElmer(struct FemType *data,int results,char *prefix,int info)
 
   InitializeKnots(data);
 
-  getline;
+  GETLINE;
   sscanf(line,"%d %d %d %d",&noknots,&noelements,&novctrs,&timesteps);
 
   data->dim = 3;
@@ -606,7 +583,7 @@ int LoadSolutionElmer(struct FemType *data,int results,char *prefix,int info)
 
   if(info) printf("Reading %d coordinates.\n",noknots);
   for(i=1; i <= noknots; i++) {
-    getline;
+    GETLINE;
     sscanf(line,"%le %le %le",
 	   &(data->x[i]),&(data->y[i]),&(data->z[i]));
   }
@@ -1408,16 +1385,16 @@ void AdjustVector(Real max,Real min,Real *vector,int first,int last)
 int ReadRealVector(Real *vector,int first,int last,char *filename)
 /* Reads a Real vector from an ascii-file with a given name. */
 {
-  int i;
+  int i,iostat;
   FILE *in;
   Real num;
-
+    
   if ((in = fopen(filename,"r")) == NULL) {
     printf("The opening of the real vector file '%s' wasn't succesfull !\n",filename);
     return(1);
   }
   for(i=first;i<=last;i++) {
-    fscanf(in,"%le\n",&num);
+    iostat = fscanf(in,"%le\n",&num);
     vector[i]=num;
     }
   fclose(in);
@@ -1445,7 +1422,7 @@ void SaveRealVector(Real *vector,int first,int last,char *filename)
 
 int ReadIntegerVector(int *vector,int first,int last,char *filename)
 {
-  int i;
+  int i,iostat;
   FILE *in;
   int num;
 
@@ -1454,7 +1431,7 @@ int ReadIntegerVector(int *vector,int first,int last,char *filename)
     return(1);
   }
   for(i=first;i<=last;i++) {
-    fscanf(in,"%d\n",&num);
+    iostat = fscanf(in,"%d\n",&num);
     vector[i]=num;
     }
   fclose(in);
@@ -1482,7 +1459,7 @@ void SaveIntegerVector(int *vector,int first,int last,char *filename)
 int ReadRealMatrix(Real **matrix,int row_first,int row_last,
 		int col_first,int col_last,char *filename)
 {
-  int i,j;
+  int i,j,iostat;
   FILE *in;
   Real num;
 
@@ -1493,7 +1470,7 @@ int ReadRealMatrix(Real **matrix,int row_first,int row_last,
 
   for(j=row_first;j<=row_last;j++) {
     for(i=col_first;i<=col_last;i++) {
-      fscanf(in,"%le\n",&num);
+      iostat = fscanf(in,"%le\n",&num);
       matrix[j][i]=num;
     }
   }
@@ -1526,7 +1503,7 @@ void SaveRealMatrix(Real **matrix,int row_first,int row_last,
 int ReadIntegerMatrix(int **matrix,int row_first,int row_last,
 		int col_first,int col_last,char *filename)
 {
-  int i,j;
+  int i,j,iostat;
   FILE *in;
   int num;
 
@@ -1537,7 +1514,7 @@ int ReadIntegerMatrix(int **matrix,int row_first,int row_last,
 
   for(j=row_first;j<=row_last;j++) {
     for(i=col_first;i<=col_last;i++) {
-      fscanf(in,"%d\n",&num);
+      iostat = fscanf(in,"%d\n",&num);
       matrix[j][i]=num;
     }
   }
@@ -1582,3 +1559,66 @@ void SaveNonZeros(Real **matrix,int row_first,int row_last,
   
   fclose(out);
 }
+
+
+int EchoFile(char *filename)
+#define LINELENGTH 100
+{
+  FILE *in;
+  char line[LINELENGTH];
+
+  if((in = fopen(filename,"r")) == NULL) {
+    printf("Could not open file '%s'.\n",filename);
+    return(1);
+  }
+
+  while(fgets(line,LINELENGTH,in) != NULL)
+    printf("%s",line);
+
+  fclose(in);
+  return(0);
+}
+
+
+
+int SetDiscontinuousPoints(struct FemType *data,struct PointType *point,
+			   int material)
+/* Create secondary point for a given point. 
+   The variable that is used to set up the boundary must not 
+   have any previously defined Dirichlet points. 
+   */
+{
+  int i,ind,corner,*order=NULL;
+  int parent,new;
+  int newsuccess;
+
+  if(point->nopoints == FALSE) {
+    printf("SetDiscontinuousPoint: No points exists!\n");
+    return(0);
+  }
+
+  order = Ivector(1,data->noknots);
+  for(i=1;i<=data->noknots;i++) 
+    order[i] = i;
+
+  
+  /* Find the number of new nodes */
+  new = 0;
+  for(i=0;i<point->nopoints;i++) {
+    parent = point->parent[i];
+    corner = point->corner[i];
+    ind = data->topology[parent][corner];
+    if(order[ind] >= 0) {
+      new++;
+      order[ind] = -new;
+    }
+  }
+
+  if(new == 0)
+    return(0);
+
+  newsuccess = CreateNewNodes(data,order,material,new);
+  
+  return(newsuccess);
+}
+
