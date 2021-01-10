@@ -739,6 +739,8 @@ CONTAINS
     ELSE
 
       IF( ASSOCIATED( Matrix % MassValuesLumped ) ) THEN
+        PRINT *,'using lumped mass'
+        
         MassL => Matrix % MassValuesLumped
         !$omp parallel do private(j,uj,mu)
         DO i=1,n

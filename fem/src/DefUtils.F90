@@ -2653,98 +2653,17 @@ CONTAINS
      END IF
    END IF
 
-   ! This is now the default global time integration routine but the old hack may still be called
+   ! Global time integration assumes that we either have a lumped or non-lumped mass matrix.
    !---------------------------------------------------------------------------------------------
-   IF( .NOT. ListGetLogical( Solver % Values,'Old Global Time Integration',Found ) ) THEN
-     CALL Add1stOrderTime_CRS( Solver % Matrix, Solver % Matrix % rhs, &
-         Solver % dt, Solver )
-     RETURN
+   IF(ASSOCIATED( Solver % Matrix % MassValuesLumped ) ) THEN
+     CALL Info('Default1stOrderTimeGlobal','Using lumped mass for time integration',Level=12)
+   ELSE IF(.NOT. ASSOCIATED( Solver % Matrix % MassValues ) ) THEN
+     CALL Fatal('Default1stOrderTimeGlobal','Time integration requires a mass matrix!')      
    END IF
 
-
-   ! The rest of the code in this subroutine is obsolete
-   IF ( .NOT.ASSOCIATED(Solver % Variable % Values, SaveValues) ) THEN
-     IF ( ALLOCATED(STIFF) ) DEALLOCATE( STIFF,MASS,X )
-     n = 0
-     DO i=1,Solver % Matrix % NumberOfRows
-       n = MAX( n,Solver % Matrix % Rows(i+1)-Solver % Matrix % Rows(i) )
-     END DO
-     k = SIZE(Solver % Variable % PrevValues,2)
-     ALLOCATE( STIFF(1,n),MASS(1,n),X(n,k) )     
-     SaveValues => Solver % Variable % Values
-   END IF
+   CALL Add1stOrderTime_CRS( Solver % Matrix, Solver % Matrix % rhs, &
+       Solver % dt, Solver )
    
-   STIFF = 0.0_dp
-   MASS = 0.0_dp
-   X = 0.0_dp
-
-   Method = ListGetString( Solver % Values, 'Timestepping Method', Found )
-   IF ( Method == 'bdf' ) THEN
-     Dts(1) = Solver % Dt
-     ConstantDt = .TRUE.
-     IF(Order > 1) THEN
-       DtVar => VariableGet( Solver % Mesh % Variables, 'Timestep size' )
-       DO i=2,Order
-         Dts(i) = DtVar % PrevValues(1,i-1)
-         IF(ABS(Dts(i)-Dts(1)) > 1.0d-6 * Dts(1)) ConstantDt = .FALSE.
-       END DO
-     END IF
-   END IF
-   
-   DO i=1,Solver % Matrix % NumberOFRows
-     n = 0
-     k = 0
-
-     DO j=Solver % Matrix % Rows(i),Solver % Matrix % Rows(i+1)-1
-       n = n+1
-       STIFF(1,n) = Solver % Matrix % Values(j)
-       IF( HasMass ) THEN
-         MASS(1,n) = Solver % Matrix % MassValues(j)
-       ELSE IF( HasFCT ) THEN
-         IF( j == Solver % Matrix % Diag(i) ) k = n
-       END IF         
-       X(n,:) = Solver % Variable % PrevValues(Solver % Matrix % Cols(j),:)
-     END DO
-
-     ! Use lumped mass in lower order fct
-     IF( HasFCT ) THEN
-       IF( k == 0 ) THEN
-         CALL Fatal('Default1stOrderTimeGlobal','Could not find diagonal entry for fct')
-       ELSE
-         MASS(1,k) = Solver % Matrix % MassValuesLumped(i)
-       END IF
-     END IF
-
-     FORCE(1) = Solver % Matrix % RHS(i)
-     Solver % Matrix % Force(i,1) = FORCE(1)
-
-     SELECT CASE( Method )
-     CASE( 'fs' )
-       CALL FractionalStep( n, Solver % dt, MASS, STIFF, FORCE, &
-           X(:,1), Solver % Beta, Solver )
-       
-     CASE('bdf')       
-       IF(ConstantDt) THEN
-         CALL BDFLocal( n, Solver % dt, MASS, STIFF, FORCE, X, Order )
-       ELSE
-         CALL VBDFLocal(n, Dts, MASS, STIFF, FORCE, X, Order )
-       END IF
-       
-     CASE DEFAULT
-       CALL NewmarkBeta( n, Solver % dt, MASS, STIFF, FORCE, &
-           X(:,1), Solver % Beta )
-     END SELECT
-
-     IF( HasFCT ) MASS(1,k) = 0.0_dp
-
-     n = 0
-     DO j=Solver % Matrix % Rows(i),Solver % Matrix % Rows(i+1)-1
-       n=n+1
-       Solver % Matrix % Values(j) = STIFF(1,n)
-     END DO
-     Solver % Matrix % RHS(i) = FORCE(1)
-   END DO
-
 !----------------------------------------------------------------------------
   END SUBROUTINE Default1stOrderTimeGlobal
 !----------------------------------------------------------------------------
@@ -6033,7 +5952,7 @@ CONTAINS
 
         SELECT CASE(order)
           
-        CASE(1)  
+        CASE(1)
           CALL Default1stOrderTimeGlobal(PSolver)
 
         CASE(2)

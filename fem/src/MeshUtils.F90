@@ -2899,7 +2899,7 @@ CONTAINS
                EdgeDOFs(Element % BoundaryInfo % Left % ElementIndex)
          ELSE
            Element % BDOFs = FaceDOFs(Element % BoundaryInfo % Left % ElementIndex)
-           Element % BDOFs = MAX(Element % BDOFs, MAX(0,InDOFs(el_id+6,5)))
+           Element % BDOFs = MAX(0, Element % BDOFs, InDOFs(el_id+6,5))
          END IF
        END IF
 
@@ -2913,7 +2913,7 @@ CONTAINS
                EdgeDOFs(Element % BoundaryInfo % Right % ElementIndex)
          ELSE
            Element % BDOFs = FaceDOFs(Element % BoundaryInfo % Right % ElementIndex)
-           Element % BDOFs = MAX(Element % BDOFs, MAX(0,InDOFs(el_id+6,5)))
+           Element % BDOFs = MAX(0, Element % BDOFs, InDOFs(el_id+6,5))
          END IF
        END IF
 

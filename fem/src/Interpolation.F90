@@ -201,9 +201,9 @@ MODULE Interpolation
       minz = MINVAL( ElementNodes % z(1:n) )
       maxz = MAXVAL( ElementNodes % z(1:n) )
       
-      xdist = MAX( MAX( Point(1) - maxx, 0.0_dp ), minx - Point(1) )
-      ydist = MAX( MAX( Point(2) - maxy, 0.0_dp ), miny - Point(2) )
-      zdist = MAX( MAX( Point(3) - maxz, 0.0_dp ), minz - Point(3) )
+      xdist = MAX( 0.0_dp, Point(1) - maxx, minx - Point(1) )
+      ydist = MAX( 0.0_dp, Point(2) - maxy, miny - Point(2) )
+      zdist = MAX( 0.0_dp, Point(3) - maxz, minz - Point(3) )
       
       GlobalDistance = SQRT( xdist**2 + ydist**2 + zdist**2)
       

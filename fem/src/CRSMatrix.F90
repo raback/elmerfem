@@ -1156,21 +1156,24 @@ END FUNCTION CRS_RowSum
 !------------------------------------------------------------------------------
 !> Computes information on the matrix rowsums.
 !------------------------------------------------------------------------------
-SUBROUTINE CRS_RowSumInfo( A, Values ) 
+SUBROUTINE CRS_RowSumInfo( A, Values, DiagSum ) 
 !------------------------------------------------------------------------------
    TYPE(Matrix_t), INTENT(IN) :: A       
    REAL(KIND=dp), POINTER, OPTIONAL :: Values(:)
+   LOGICAL, OPTIONAL :: DiagSum
 !------------------------------------------------------------------------------
    REAL(KIND=dp), POINTER :: PValues(:)
    INTEGER :: i,j,k              
    REAL(KIND=dp) :: val,rsum,absrsum     
-   REAL(KIND=dp) :: minrsum,maxrsum,minabsrsum,maxabsrsum
+   REAL(KIND=dp) :: minrsum,maxrsum,minabsrsum,maxabsrsum,totrsum,totabsrsum
 !------------------------------------------------------------------------------
 
    minrsum = HUGE(minrsum)
    maxrsum = -HUGE(maxrsum)
    minabsrsum = HUGE(minabsrsum)
    maxabsrsum = 0.0_dp
+   totrsum = 0.0_dp
+   totabsrsum = 0.0_dp
    
    IF( PRESENT( Values ) ) THEN
      PValues => Values
@@ -1178,23 +1181,49 @@ SUBROUTINE CRS_RowSumInfo( A, Values )
      PValues => A % Values
    END IF
 
+   k = 0
+   
    DO i=1,A % NumberOfRows
      rsum = 0.0_dp
      absrsum = 0.0_dp
 
+     IF( PRESENT( DiagSum ) ) THEN
+       k = A % Diag(i) 
+       IF( DiagSum ) THEN
+         val = PValues( k )
+         rsum = val
+         absrsum = ABS( val )          
+         GOTO 1
+       END IF
+     END IF
+                 
      DO j=A % Rows(i), A % Rows(i+1)-1
+       IF( j /= k ) CYCLE
        val = PValues( j )
        rsum = rsum + val
        absrsum = absrsum + ABS( val ) 
      END DO
 
+1    CONTINUE
+     totrsum = totrsum + rsum
+     totabsrsum = totabsrsum + absrsum     
      minrsum = MIN( minrsum, rsum ) 
      maxrsum = MAX( maxrsum, rsum ) 
      minabsrsum = MIN( minabsrsum, absrsum ) 
      maxabsrsum = MAX( maxabsrsum, absrsum ) 
    END DO
 
-   WRITE( Message,'(A,ES12.4)') 'Total sum:',SUM( PValues )
+   IF( PRESENT( DiagSum ) ) THEN
+     IF( DiagSum ) THEN
+       CALL Info( 'CRS_RowSumInfo','Matrix diagonal analysis')      
+     ELSE
+       CALL Info( 'CRS_RowSumInfo','Matrix off-diagonal analysis')      
+     END IF
+   ELSE
+     CALL Info( 'CRS_RowSumInfo','Matrix row analysis')      
+   END IF
+
+   WRITE( Message,'(A,2ES12.4)') 'Total sum:',totrsum,totabsrsum
    CALL Info( 'CRS_RowSumInfo', Message ) 
    WRITE( Message,'(A,2ES12.4)') 'Rowsum range:',minrsum,maxrsum
    CALL Info( 'CRS_RowSumInfo', Message ) 
@@ -2227,7 +2256,7 @@ SUBROUTINE CRS_RowSumInfo( A, Values )
 !------------------------------------------------------------------------------
     TYPE(Matrix_t) :: A           !< Initial higher order matrix
 !------------------------------------------------------------------------------
-    INTEGER :: i,j,k,k2,l,kb,n, proc0, proc1,p,q, gi,gj
+    INTEGER :: i,j,k,k2,l,kb,n, proc0, proc1,p,q, gi,gj,m
     REAL(KIND=dp) :: Aij,Aji,Aii,Dij,dFij,msum
     REAL(KIND=dp), POINTER :: ML(:)
     INTEGER, POINTER :: Rows(:), Cols(:),Diag(:)
@@ -2268,25 +2297,30 @@ SUBROUTINE CRS_RowSumInfo( A, Values )
     A % BulkValues = A % Values
 
     pcount = 0
-    Positive = .TRUE.
+    m = 0
 
     N = A % NumberOfRows
     Rows => A % Rows
     Cols => A % Cols
     Diag => A % Diag
-
+    
     DO i=1,n
       IF ( .NOT. ActiveNodes(i) ) CYCLE
 
       Aii = A % Values(A % Diag(i))
-      IF( Aii > 0.0_dp ) pcount = pcount + 1
+      Positive = (Aii > 0.0_dp )
+
+      IF( Positive ) pcount = pcount + 1
+      Positive = .TRUE.
+      
       DO k = Rows(i), Rows(i+1)-1
         j = Cols(k)
         IF ( .NOT. ActiveNodes(j) ) CYCLE
 
+        ! We only look at the symmetric part of the matrix, associated to entry k
         IF( i >= j ) CYCLE
-
-        ! First find entry (j,i)
+        
+        ! Find the corresponding transpose element (j,i), associated to k2
         Found = .FALSE.
         DO k2 = Rows(j), Rows(j+1)-1
           IF( Cols(k2) == i ) THEN
@@ -2305,31 +2339,39 @@ SUBROUTINE CRS_RowSumInfo( A, Values )
           Aji = Aji + A % HaloValues(k2)
         END IF
 
+!        IF(Positive) THEN
+!          PRINT *,'Apos:',i,j,Aii,Aij,Aji
+!        ELSE
+!          PRINT *,'Aneg:',i,j,Aii,Aij,Aji
+!        END IF
+        
+        
         ! Formula (30) in Kuzmin's paper
-        ! Positive = Aii > 0.0_dp
         ! In Kuzmin's paper matrix K is -K compared to Elmer convention.
         ! Hence also the condition here is opposite. 
         IF( Positive ) THEN
-          Dij = MIN( -Aij, -Aji, 0.0_dp )
+          Dij = MAX( Aij, Aji, 0.0_dp )
         ELSE
-          Dij = MAX( -Aij, -Aji, 0.0_dp )
-        END IF
-
-        IF(.FALSE.) THEN
-          PRINT *,'ij',i,j,Cols(k2),Cols(k)
-          PRINT *,'Diag',Cols(Diag(i)),Cols(Diag(j))
-          PRINT *,'A',Aij,Aji,Aii,Dij
+          Dij = MIN( Aij, Aji, 0.0_dp )
         END IF
 
         ! Formula (32) in Kuzmin's paper
         IF( ABS(Dij) > 0._dp ) THEN
-          A % FCT_D(k)  = A % FCT_D(k)  + Dij
-          A % FCT_D(k2) = A % FCT_D(k2) + Dij
-          A % FCT_D(Diag(i)) = A % FCT_D(Diag(i)) - Dij
-          A % FCT_D(Diag(j)) = A % FCT_D(Diag(j)) - Dij
+          m = m + 1
+          IF(.FALSE.) THEN
+            PRINT *,'inds:',Positive,i,j,Cols(k2),Cols(k),Aij,Aji,Aii,Dij
+          END IF
+          
+          A % FCT_D(k)  = A % FCT_D(k)  - Dij
+          A % FCT_D(k2) = A % FCT_D(k2) - Dij
+          A % FCT_D(Diag(i)) = A % FCT_D(Diag(i)) + Dij
+          A % FCT_D(Diag(j)) = A % FCT_D(Diag(j)) + Dij
         END IF
       END DO
     END DO
+
+    WRITE( Message,'(A,I0,A,I0,A)') 'Corrective entries ',m,' (relative to ',SIZE(A % FCT_D),')'
+    CALL Info('CRS_FCTLowOrder',Message,Level=8)
 
     WRITE( Message,'(A,I0,A,I0,A)') 'Positive diagonals ',pcount,' (out of ',n,')'
     CALL Info('CRS_FCTLowOrder',Message,Level=8)
@@ -2339,9 +2381,15 @@ SUBROUTINE CRS_RowSumInfo( A, Values )
     ! Just some optional stuff for debugging purposes
     IF (.FALSE.) THEN
       CALL CRS_RowSumInfo( A, A % BulkValues ) 
+      CALL CRS_RowSumInfo( A, A % BulkValues, .TRUE.) 
+      CALL CRS_RowSumInfo( A, A % BulkValues, .FALSE.) 
       CALL CRS_RowSumInfo( A, A % Values ) 
+      CALL CRS_RowSumInfo( A, A % Values, .TRUE.) 
+      CALL CRS_RowSumInfo( A, A % Values, .FALSE.) 
       CALL CRS_RowSumInfo( A, A % FCT_D ) 
-    END IF
+      CALL CRS_RowSumInfo( A, A % FCT_D, .TRUE.) 
+      CALL CRS_RowSumInfo( A, A % FCT_D, .FALSE. ) 
+   END IF
 
     ! Create a lumped mass matrix by computing the rowsums of the 
     ! initial mass matrix.

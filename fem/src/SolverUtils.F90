@@ -1017,6 +1017,8 @@ CONTAINS
      CurrSol => Solver % Variable % Values
      PrevSol => Solver % Variable % PrevValues
 
+     PRINT *,'add 1st order time with: ',TRIM(Method)
+     
      
      SELECT CASE( Method )
        
@@ -1033,7 +1035,6 @@ CONTAINS
            IF(ABS(Dts(i)-Dts(1)) > 1.0d-6 * Dts(1)) ConstantDt = .FALSE.
          END DO
        END IF
-
        IF(ConstantDt) THEN
          CALL BDF_CRS( dt, Matrix, Force, PrevSol, Order )
        ELSE     
@@ -18815,12 +18816,12 @@ CONTAINS
     corr => Var % Values
 
 
-    ! 1) Compute the nodal time derivatives
+    ! 1) Compute the nodal time derivatives. Eq. (58) p. 9 
     ! M_C*udot=K*ulow  (M_C is the consistent mass matrix)
     !----------------------------------------------------------------------
     CALL Info('FCT_Correction','Compute nodal time derivatives',Level=10)
     ! Compute: ku = K*ulow
-#if 0
+#if 1
     DO i=1,n
       rsum = 0.0_dp
       DO k=Rows(i),Rows(i+1)-1
@@ -18839,6 +18840,8 @@ CONTAINS
     CALL ListAddLogical( Params,'fct: Skip Advance Nonlinear iter',.TRUE.)
     SaveValues => A % Values
     A % Values => M_C
+
+    ! Solve for du/dt.
     CALL SolveLinearSystem( A, ku, udot, Norm, 1, Solver )
     A % Values => SaveValues
     CALL ListPopNamespace()
@@ -18886,14 +18889,19 @@ CONTAINS
   END BLOCK
 #endif
 
+  ! Compared to Elmer the article has different sign for K
+  udot = -udot 
+
+  
     ! Computation of correction factors (Zalesak's limiter)
     ! Code derived initially from Kuzmin's subroutine   
     !---------------------------------------------------------
     CALL Info('FCT_Correction','Compute correction factors',Level=10)
-    pp = 0 
-    pm = 0
-    qp = 0 
-    qm = 0
+
+    pp = 0.0_dp 
+    pm = 0.0_dp
+    qp = 0.0_dp 
+    qm = 0.0_dp
 
     IF(ParEnv % PEs>1) THEN
       fct_d => A % FCT_D
@@ -18922,7 +18930,7 @@ CONTAINS
           IF ( .NOT.ActiveNodes(j) ) CYCLE
         END IF
 
-        ! Compute the raw antidiffusive fluxes
+        ! Compute the raw antidiffusive fluxes, Eq. (57), p. 9
         ! f_ij=m_ij*[udot(i)-udot(j)]+d_ij*[ulow(i)-ulow(j)]
         !-----------------------------------------------------
         ! d_ij and m_ij are both symmetric
@@ -18952,6 +18960,13 @@ CONTAINS
       END DO
     END DO
 
+    CorrCoeff = ListGetCReal( Params,'FCT Correction Coefficient',Found )
+    IF( .NOT. Found ) CorrCoeff = 1._dp
+    CorrCoeff = CorrCoeff * Solver % dt
+    
+    Ceps = ListGetCReal( Params,'FCT Correction Epsilon',Found )
+    IF(.NOT. Found ) Ceps = EPSILON( Ceps )
+
     ! Computation of nodal correction factors
     ! DO i=1,n
     !  IF( pp(i) > Ceps ) THEN
@@ -18976,11 +18991,7 @@ CONTAINS
     !     CALL ParallelSumVector(A,qp)
     !   END IF
     
-    CorrCoeff = ListGetCReal( Params,'FCT Correction Coefficient',Found )
-    IF( .NOT. Found ) CorrCoeff = 1._dp
 
-    Ceps = ListGetCReal( Params,'FCT Correction Epsilon',Found )
-    IF(.NOT. Found ) Ceps = EPSILON( Ceps )
     corr = 0._dp
     DO i=1,n
       IF (ParEnv % PEs>1) THEN
@@ -19028,7 +19039,8 @@ CONTAINS
       END DO
       corr(i) = CorrCoeff * corr(i) / M_L(i)
     END DO
-
+    
+    
     IF (ParEnv % PEs>1) THEN
 !     CALL ParallelSumVector(A,corr)
       DEALLOCATE(A % HaloValues, A % HaloMassValues)
