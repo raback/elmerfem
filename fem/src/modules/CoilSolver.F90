@@ -81,6 +81,11 @@ SUBROUTINE CoilSolver_init( Model,Solver,dt,TransientSimulation )
   CALL ListAddString( Params,NextFreeKeyword('Exported Variable',Params),&
       'CoilPot')
 
+  IF( ListGetLogical( Params,'Normalize Coil Current',Found ) ) THEN
+    CALL ListAddString( Params,NextFreeKeyword('Exported Variable',Params),&
+        'CoilScale')
+  END IF
+
   IF( GetLogical( Params,'Coil Conductivity Fix', Found ) ) THEN
     CALL ListAddString( Params,NextFreeKeyword('Exported Variable',Params),&
         'CoilFix')
@@ -153,18 +158,21 @@ SUBROUTINE CoilSolver( Model,Solver,dt,TransientSimulation )
   INTEGER, ALLOCATABLE, TARGET :: SetA(:), SetB(:)
   TYPE(Matrix_t), POINTER :: StiffMatrix
   REAL(KIND=dp), POINTER :: ForceVector(:)
-  TYPE(Variable_t), POINTER :: PotVar, FixVar, SolVar, FluxVar, FluxVarE, LoadVar, DistVar
+  TYPE(Variable_t), POINTER :: PotVar, FixVar, SolVar, FluxVar, FluxVarE, LoadVar, &
+      DistVar, ScaleVar
   TYPE(Variable_t), POINTER :: PotVarA,PotVarB,PotSelect,CoilIndexVar,CoilSetVar
   TYPE(Mesh_t), POINTER :: Mesh
   TYPE(ValueList_t), POINTER :: Params, CoilList 
   REAL(KIND=dp) :: CoilCrossSection,InitialCurrent, Coeff, val, x0
   REAL(KIND=dp), ALLOCATABLE :: DesiredCoilCurrent(:), DesiredCurrentDensity(:)
   LOGICAL :: Found, CoilClosed, CoilAnisotropic, UseDistance, FixConductivity, &
-      NormalizeCurrent, FitCoil, SelectNodes, CalcCurr, NarrowInterface
+      NormalizeCurrent, FitCoil, SelectNodes, CalcCurr, NarrowInterface, &
+      CoilStranded, SetLoad
   LOGICAL, ALLOCATABLE :: GotCurr(:), GotDens(:)
   REAL(KIND=dp) :: CoilCenter(3), CoilNormal(3), CoilTangent1(3), CoilTangent2(3), &
       MinCurr(3),MaxCurr(3),TmpCurr(3)
   INTEGER, ALLOCATABLE :: CoilIndex(:)
+  REAL(KIND=dp), POINTER :: TmpValues(:), TmpLoads(:)
   CHARACTER(LEN=MAX_NAME_LEN) :: CondName
 
   
@@ -227,18 +235,13 @@ SUBROUTINE CoilSolver( Model,Solver,dt,TransientSimulation )
   NormalizeCurrent = ListGetLogical( Params,'Normalize Coil Current',Found ) 
   IF( NormalizeCurrent ) THEN
     CALL Info('CoilSolver','Normalizing current density (as for stranded coil)',Level=5)
+    ScaleVar => VariableGet( Mesh % Variables,'CoilScale' )
   END IF
 
-  
-  IF( FixConductivity ) THEN
-    IF( CoilAnisotropic ) THEN
-      MaxNonlinIter = 3
-    ELSE
-      MaxNonlinIter = 2
-    END IF
-  ELSE
-    MaxNonlinIter = 1
-  END IF
+  MaxNonlinIter = 1
+  CoilStranded = .FALSE. 
+  IF( FixConductivity ) MaxNonlinIter = 2
+  IF( CoilAnisotropic ) MaxNonlinIter = 3
 
   PotVarA => VariableGet( Mesh % Variables,'CoilPot' )
   ALLOCATE( SetA(nsize) )
@@ -376,12 +379,13 @@ SUBROUTINE CoilSolver( Model,Solver,dt,TransientSimulation )
     CALL CountFixingNodes(Set,2)
   END IF
   
-       
+100 CONTINUE
+  
   DO iter=1,MaxNonlinIter
       
     IF( iter > 1 ) THEN
       CALL Info('CoilSolver','Fixing the conductivity field')
-      
+        
       CALL DefaultInitialize()
       
       Active = GetNOFActive()
@@ -404,7 +408,7 @@ SUBROUTINE CoilSolver( Model,Solver,dt,TransientSimulation )
 
     ! For closed coils the solution is computed in two parts
     DO Part = 1,CoilParts
-      
+
       ! For closed coils the solution is computed in two parts
       IF( Part == 1 ) THEN        
         Set => SetA
@@ -429,31 +433,59 @@ SUBROUTINE CoilSolver( Model,Solver,dt,TransientSimulation )
       CALL DefaultFinishBulkAssembly()
       CALL DefaultFinishAssembly()
 
-      ! Set the potential values on the nodes
-      ! Values 0/1 are used as the potential is later scaled. 
-      DO i = 1,nsize
-        sgn = Set(i)
-        IF( sgn == 0 ) CYCLE
-        
-        IF( sgn > 0 ) THEN
-          val = 1.0_dp
-        ELSE
-          val = 0.0_dp
-        END IF
-        
-        CALL UpdateDirichletDof( Solver % Matrix, i, val )
-      END DO
-      
       ! If we use narrow strategy we need to cut the connections in the bulk values
       ! between the two different Dirichlet conditions. Otherwise the load computation
       ! will produce crap.
       IF( NarrowInterface ) THEN
         CALL CutInterfaceConnections( StiffMatrix, Set )
       END IF
+      
+      IF( CoilStranded ) THEN
+        ! Use the other part to compute the nodal loads
+        IF( Part == 1 ) THEN
+          ALLOCATE( TmpValues( nsize ), TmpLoads( nsize ) )
+          TmpValues = PotVarA % Values
+          CALL CalculateLoads( Solver, Solver % Matrix, PotVarB % Values, 1, &
+              .FALSE., NodalValues = TmpLoads )
+        ELSE
+          CALL CalculateLoads( Solver, Solver % Matrix, TmpValues, 1, &
+              .FALSE., NodalValues = TmpLoads )          
+        END IF          
+      END IF
+      
+      IF( CoilStranded ) THEN
+        SetLoad = .FALSE.
+        DO i = 1,nsize
+          sgn = Set(i)
+          IF( sgn == 0 ) CYCLE
 
+          IF( sgn > 0 .OR. SetLoad ) THEN
+            PRINT *,'SetLoad:',i,sgn,ScaleVar % Values(i),TmpLoads(i)
+            Solver % Matrix % Rhs(i) = ScaleVar % Values(i) * TmpLoads(i) 
+          ELSE
+            ! We need to set at least one Dirichlet node as well 
+            CALL UpdateDirichletDof( Solver % Matrix, i, 0.0_dp )
+            SetLoad = .TRUE.
+          END IF
+        END DO
+      ELSE
+        ! Set the potential values on the nodes
+        ! Values 0/1 are used as the potential is later scaled. 
+        DO i = 1,nsize
+          sgn = Set(i)
+          IF( sgn == 0 ) CYCLE
+
+          IF( sgn > 0 ) THEN
+            val = 1.0_dp
+          ELSE
+            val = 0.0_dp
+          END IF
+          CALL UpdateDirichletDof( Solver % Matrix, i, val )
+        END DO
+      END IF
+            
       ! Only Default dirichlet conditions activate the BCs above!
       CALL DefaultDirichletBCs()
-
       
       ! Solve the potential field
       !--------------------------
@@ -473,7 +505,7 @@ SUBROUTINE CoilSolver( Model,Solver,dt,TransientSimulation )
       END IF
 
       CALL ScalePotential()
-        
+      
     END DO
   END DO
 
@@ -540,13 +572,18 @@ SUBROUTINE CoilSolver( Model,Solver,dt,TransientSimulation )
       CALL Info('CoilSolver',Message,Level=7)
     END DO
 
-    IF( NormalizeCurrent ) THEN
+    IF( NormalizeCurrent .AND. .NOT. CoilStranded ) THEN
       CALL NormalizeCurrentDensity() 
     END IF
     CALL ListAddLogical( Params,'Calculate Loads',.TRUE.)
   END IF
     
-
+  IF(.NOT. CoilStranded ) THEN
+    CoilStranded = GetLogical( Params,'Coil Stranded', Found )
+    IF( CoilStranded ) GOTO 100 
+  END IF
+    
+  
   ! Some optional postprocessing mainly for debugging purposes
   CoilSetVar => VariableGet( Mesh % Variables,'CoilSet' )
   IF( ASSOCIATED( CoilSetVar ) ) THEN
@@ -566,6 +603,10 @@ SUBROUTINE CoilSolver( Model,Solver,dt,TransientSimulation )
     END IF
   END IF
 
+  IF( CoilStranded ) THEN
+    DEALLOCATE( TmpValues, TmpLoads ) 
+  END IF
+      
   ! Finally, always use the primary variable for testing convergence in
   ! coupled system level etc.
   Solver % Variable % Values = PotVarA % Values
@@ -859,17 +900,6 @@ CONTAINS
     END IF
         
     CALL TangentDirections(CoilNormal, CoilTangent1, CoilTangent2)
-
-    ! The old way. 
-    !CoilTangent1 = EigVec(:,1)
-    !CoilTangent2 = EigVec(:,2)
-
-    !IF( -MINVAL( CoilTangent1 ) > MAXVAL( CoilTangent1 ) ) THEN
-    !  CoilTangent1 = -CoilTangent1 
-    !END IF
-    !IF( -MINVAL( CoilTangent2 ) > MAXVAL( CoilTangent2 ) ) THEN
-    !  CoilTangent2 = -CoilTangent2 
-    !END IF
 
     WRITE( Message,'(A,3ES12.4)') 'Coil axis normal:',CoilNormal
     CALL Info('CoilSolver',Message,Level=7)
@@ -1224,7 +1254,9 @@ CONTAINS
     END IF
 
     IF( iter > 1 ) THEN
-      NodalFix(1:n) = FixVar % Values( Perm( Element % NodeIndexes(1:n) ) )
+      IF( FixConductivity ) THEN
+        NodalFix(1:n) = FixVar % Values( Perm( Element % NodeIndexes(1:n) ) )
+      END IF
     END IF
 
     IF( UseDistance ) THEN
@@ -1241,17 +1273,18 @@ CONTAINS
           IP % W(t), detJ, Basis, dBasisdx )
 
       CondAtIp = 1.0_dp
+      FixAtIp = 1.0_dp
       IF( iter > 1 ) THEN
-        FixAtIp = SUM( Basis(1:n) * NodalFix(1:n) )
-        IF( CoilAnisotropic ) THEN
-          DO i=1,3
-            GradAtIP(i) = SUM( dBasisdx(1:n,i) * NodalPot(1:n) )
-          END DO
-          AbsGradAtIp = SQRT( SUM( GradAtIp ** 2 ) )
-          CondAtIp = ABS( GradAtIp ) / AbsGradAtIp
+        IF( FixConductivity ) THEN
+          FixAtIp = SUM( Basis(1:n) * NodalFix(1:n) )
         END IF
-      ELSE
-        FixAtIp = 1.0_dp
+      END IF
+      IF( (iter > 1 .AND. CoilAnisotropic ) .OR. CoilStranded ) THEN
+        DO i=1,3
+          GradAtIP(i) = SUM( dBasisdx(1:n,i) * NodalPot(1:n) )
+        END DO
+        AbsGradAtIp = SQRT( SUM( GradAtIp ** 2 ) )
+        CondAtIp = ABS( GradAtIp ) / AbsGradAtIp + 1.0e-3
       END IF
 
                 
@@ -1298,9 +1331,9 @@ CONTAINS
         END DO
       END DO
     END DO
-
+      
     CALL DefaultUpdateEquations(STIFF,FORCE)
-    !------------------------------------------------------------------------------
+!------------------------------------------------------------------------------
   END SUBROUTINE LocalPotMatrix
 !------------------------------------------------------------------------------
 
@@ -1393,6 +1426,76 @@ CONTAINS
 !------------------------------------------------------------------------------
 
 
+  
+! Assembly the equation for the fixing coefficient
+!------------------------------------------------------------------------------
+  SUBROUTINE LocalStrandedMatrix( Element, n, nd )
+!------------------------------------------------------------------------------
+    INTEGER :: n, nd
+    TYPE(Element_t), POINTER :: Element
+!------------------------------------------------------------------------------
+    REAL(KIND=dp) :: Weight 
+    REAL(KIND=dp) :: Basis(nd),dBasisdx(nd,3),DetJ,GradAtIp(3),Dir(3)
+    REAL(KIND=dp) :: STIFF(nd,nd), FORCE(nd),NodalPot(nd)
+    LOGICAL :: Stat,Found
+    INTEGER :: i,j,k,t,p,q
+    TYPE(GaussIntegrationPoints_t) :: IP
+
+    TYPE(Nodes_t) :: Nodes
+    SAVE Nodes
+!------------------------------------------------------------------------------
+
+    CALL GetElementNodes( Nodes )
+    STIFF = 0._dp
+    FORCE = 0._dp
+
+    ! The previous potential is used to get the unisotropic electric conductivity
+    IF( CoilParts == 1 ) THEN
+      NodalPot(1:n) = PotVar % Values( Perm( Element % NodeIndexes ) )
+    ELSE
+      IF( MINVAL( PotSelect % Values( PotSelect % Perm(Element % NodeIndexes)) ) > 0.0_dp ) THEN
+        NodalPot(1:n) = PotVarB % Values( Perm( Element % NodeIndexes ) )
+      ELSE
+        NodalPot(1:n) = PotVarA % Values( Perm( Element % NodeIndexes ) )
+      END IF
+    END IF
+   
+    !Numerical integration:
+    !----------------------
+    IP = GaussPoints( Element )
+    DO t=1,IP % n
+      ! Basis function values & derivatives at the integration point:
+      !--------------------------------------------------------------
+      stat = ElementInfo( Element, Nodes, IP % U(t), IP % V(t), &
+              IP % W(t), detJ, Basis, dBasisdx )
+
+      DO i=1,3
+        GradAtIP(i) = SUM( dBasisdx( 1:nd, i) * NodalPot(1:nd) )
+      END DO      
+      Dir = GradAtIp / SQRT( SUM( GradAtIp**2) )      
+      
+      Weight = IP % s(t) * DetJ
+
+      ! unsiotropic diffusion term (D*grad(u),grad(v)):
+      ! ------------------------------------------------
+      DO p=1,nd
+        DO q=1,nd
+          DO j=1,3
+            DO k=1,3              
+              STIFF(p,q) = STIFF(p,q) + Weight * &
+                  dBasisdx(p,j) * Dir(j) * Dir(k) * dBasisdx(q,k) 
+            END DO
+          END DO
+        END DO
+      END DO
+    END DO
+      
+    CALL DefaultUpdateEquations(STIFF,FORCE)
+!------------------------------------------------------------------------------
+  END SUBROUTINE LocalStrandedMatrix
+!------------------------------------------------------------------------------
+
+  
 ! Assembly the equation for the flux component
 !------------------------------------------------------------------------------
   SUBROUTINE LocalFluxMatrix( Element, n, nd, dimi  )
@@ -1508,7 +1611,8 @@ CONTAINS
     IF( ASSOCIATED( FluxVarE ) ) THEN
       CALL LUdecomp(STIFF,nd,pivot)
       CALL LUSolve(nd,STIFF,FORCE,pivot)
-      FluxVarE % Values(FluxVarE % Perm(Element % DGIndexes(1:nd))) = FORCE(1:nd)
+!      FluxVarE % Values(FluxVarE % Perm(Element % DGIndexes(1:nd))) = FORCE(1:nd)
+      FluxVarE % Values(FluxVarE % Perm(Element % DGIndexes(1:nd))) = SUM( FORCE(1:nd) ) / nd
     END IF
     
 !------------------------------------------------------------------------------
@@ -1742,9 +1846,12 @@ CONTAINS
           AbsCurr = SQRT( SUM( LocalCurr(1:dim) ** 2 ) )
           IF( AbsCurr > TINY( AbsCurr ) ) THEN
             ScaleCurr = TargetDensity / AbsCurr 
-            FluxVar % Values( dim*(j-1)+1: dim*(j-1)+dim ) = &
-                ScaleCurr * LocalCurr(1:dim)
+          ELSE
+            ScaleCurr = 1.0_dp
           END IF
+            
+          FluxVar % Values( dim*(j-1)+1: dim*(j-1)+dim ) = ScaleCurr * LocalCurr(1:dim)          
+          ScaleVar % Values(j) = ScaleCurr
         END DO
       END IF
 
