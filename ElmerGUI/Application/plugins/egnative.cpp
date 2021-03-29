@@ -33,8 +33,10 @@
 #include <string.h>
 #include <math.h>
 
-#ifdef WIN32
+/* Microsoft visual studio */
+#ifdef _MSC_VER 
 #include <io.h>
+#include <direct.h>
 #else
 #include <unistd.h>
 #endif
@@ -5041,8 +5043,13 @@ int LoadElmerInput(struct FemType *data,struct BoundaryType *bound,
 
 
   sprintf(directoryname,"%s",prefix);
-  cdstat = chdir(directoryname);
 
+#ifdef _MSC_VER 
+  cdstat = _chdir(directoryname);
+#else
+  cdstat = chdir(directoryname);
+#endif
+  
   if(info) {
     if(cdstat) 
       printf("Loading mesh in ElmerSolver format from root directory.\n");
@@ -5454,9 +5461,12 @@ int LoadElmerInput(struct FemType *data,struct BoundaryType *bound,
     }
   }
 
-
+#ifdef _MSC_VER 
+  if(!cdstat) cdstat = _chdir("..");
+#else
   if(!cdstat) cdstat = chdir("..");
-
+#endif
+  
   if(info) printf("Elmer mesh loaded successfully\n");
 
   return(0);
@@ -5500,7 +5510,11 @@ int SaveElmerInput(struct FemType *data,struct BoundaryType *bound,
   if(info) printf("Saving mesh in ElmerSolver format to directory %s.\n",
 		  directoryname);
 
+#ifdef _MSC_VER 
+  fail = _chdir(directoryname);
+#else
   fail = chdir(directoryname);
+#endif
   if(fail) {
 #ifdef MINGW32
     fail = mkdir(directoryname);
@@ -5512,7 +5526,11 @@ int SaveElmerInput(struct FemType *data,struct BoundaryType *bound,
       return(1);
     }
     else {
+#ifdef _MSC_VER 
+      cdstat = _chdir(directoryname);
+#else
       cdstat = chdir(directoryname);
+#endif
     }
   }
   else {
@@ -5701,7 +5719,11 @@ int SaveElmerInput(struct FemType *data,struct BoundaryType *bound,
   }
 
 
+#ifdef _MSC_VER 
+  cdstat = _chdir("..");
+#else
   cdstat = chdir("..");
+#endif
   
   return(0);
 }

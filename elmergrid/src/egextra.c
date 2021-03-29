@@ -42,8 +42,15 @@
 #include <math.h>
 #include <stdarg.h>
 #include <limits.h>
-#include <unistd.h>
 #include <sys/stat.h>
+
+/* Microsoft visual studio */
+#ifdef _MSC_VER 
+#include <io.h>
+#include <direct.h>
+#else
+#include <unistd.h>
+#endif
 
 #include "egutils.h"
 #include "egdef.h"
@@ -880,8 +887,13 @@ int SaveElmerInputFemBem(struct FemType *data,struct BoundaryType *bound,
 
   if(info) printf("Saving mesh in ElmerSolver format to directory %s.\n",
 		  directoryname);
-
+  
+#ifdef _MSC_VER  
+  cdstat = _chdir(directoryname);
+#else
   cdstat = chdir(directoryname);
+#endif
+  
   if(cdstat) {
 #ifdef MINGW32
     fail = mkdir(directoryname);
@@ -893,7 +905,11 @@ int SaveElmerInputFemBem(struct FemType *data,struct BoundaryType *bound,
       return(1);
     }
     else {
+#ifdef _MSC_VER  
+      cdstat = _chdir(directoryname);
+#else
       cdstat = chdir(directoryname);
+#endif
     }
   }
   else {
@@ -1083,8 +1099,12 @@ int SaveElmerInputFemBem(struct FemType *data,struct BoundaryType *bound,
     }
     fclose(out);
   }
-  
+
+#ifdef _MSC_VER 
+  cdstat = _chdir("..");
+#else
   cdstat = chdir("..");
+#endif
   
   return(0);
 }
@@ -1621,4 +1641,3 @@ int SetDiscontinuousPoints(struct FemType *data,struct PointType *point,
   
   return(newsuccess);
 }
-

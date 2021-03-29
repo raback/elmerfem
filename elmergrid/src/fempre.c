@@ -880,12 +880,6 @@ int main(int argc, char *argv[])
       SaveFidapOutput(&data[k],eg.filesout[k],info,1,data[k].dofs[1]);
     break;
 
-#if 0
-  case 8:
-    EasymeshSave();
-    break;
-#endif
-
 
     /* Some obsolete special formats related to mapping, view factors etc. */
 

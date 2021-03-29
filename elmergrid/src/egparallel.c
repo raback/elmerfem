@@ -28,13 +28,16 @@
 */
 
 #include <stdio.h>
-#include <unistd.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
-#if HAVE_UNISTD_H
+/* Microsoft visual studio */
+#ifdef _MSC_VER 
+#include <io.h>
+#include <direct.h>
+#else
 #include <unistd.h>
 #endif
 
@@ -3945,7 +3948,13 @@ int SaveElmerInputPartitioned(struct FemType *data,struct BoundaryType *bound,
   fail = mkdir(directoryname,0750);
 #endif
   if(info && !fail) printf("Created mesh directory: %s\n",directoryname);
+
+#ifdef _MSC_VER
+  fail = _chdir(directoryname);
+#else
   fail = chdir(directoryname);
+#endif
+  
 #ifdef MINGW32
   fail = mkdir(subdirectoryname);
 #else
@@ -3961,8 +3970,12 @@ int SaveElmerInputPartitioned(struct FemType *data,struct BoundaryType *bound,
   else {
     if(info) printf("Created subdirectory: %s\n",subdirectoryname);
   }
-  cdstat = chdir(subdirectoryname);
 
+#ifdef _MSC_VER
+  cdstat = _chdir(subdirectoryname);
+#else  
+  cdstat = chdir(subdirectoryname);
+#endif
 
 
   if(info) printf("Saving mesh in parallel ElmerSolver format to directory %s/%s.\n",
@@ -4889,9 +4902,14 @@ int SaveElmerInputPartitioned(struct FemType *data,struct BoundaryType *bound,
 
   if(anyparthalo) free_Ivector(neededtimes2,1,noknots);
     
+#ifdef _MSC_VER
+  cdstat = _chdir("..");
+  cdstat = _chdir("..");
+#else
   cdstat = chdir("..");
   cdstat = chdir("..");
-
+#endif
+  
   if(reorder) free_Ivector(order,1,noknots);
   free_Ivector(needednodes,1,partitions);
   free_Ivector(neededtwice,1,partitions);
