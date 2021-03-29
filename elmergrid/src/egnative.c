@@ -28,13 +28,14 @@
 */
 
 #include <stdio.h>
-#include <unistd.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
-#if HAVE_UNISTD_H
+#ifdef WIN32
+#include <io.h>
+#else
 #include <unistd.h>
 #endif
 
@@ -49,9 +50,7 @@
 #include "egdef.h"
 #include "egtypes.h"
 #include "egmesh.h"
-/* #include "egparallel.h" */
 #include "egnative.h"
-/*#include "../config.h"*/
 
 #define GETLINE ioptr=fgets(line,MAXLINESIZE,in) 
 static char *ioptr;

@@ -31,7 +31,7 @@ typedef int Integer;
 
 /* Natural constants */
 #ifndef FM_PI
-#define FM_PI 3.141592653
+#define FM_PI 3.14159265358979323846
 #endif
 #define NEARZERO 1.0e-50
 
