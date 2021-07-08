@@ -2531,19 +2531,23 @@ CONTAINS
      TYPE( GaussIntegrationPoints_t ) :: IntegStuff   !< Structure holding the integration points
 !------------------------------------------------------------------------------
      LOGICAL :: pElement, UsePRefElement, Economic
-     INTEGER :: n, eldim, p1d, ntri, nseg, necon
+     INTEGER :: n, eldim, p1d, ntri, nseg, necon, elfamily
      TYPE(ElementType_t), POINTER :: elmt
+     INTEGER, PARAMETER :: EconTriangle(9) = [1,3,4,6,7,11,12,17,20], &
+         EconTetra(4) = [1,4,5,11]
+     
 !------------------------------------------------------------------------------
      elmt => elm % TYPE
-
+     elfamily = elmt % ElementCode / 100
+     
      IF (PRESENT(EdgeBasis)) THEN
        IF (EdgeBasis) THEN
          UsePRefElement = .TRUE.
          IF (PRESENT(PReferenceElement)) UsePRefElement = PReferenceElement
          IF (PRESENT(EdgeBasisDegree)) THEN
-           IntegStuff = EdgeElementGaussPoints(elmt % ElementCode/100, UsePRefElement, EdgeBasisDegree)
+           IntegStuff = EdgeElementGaussPoints(elfamily, UsePRefElement, EdgeBasisDegree)
          ELSE
-           IntegStuff = EdgeElementGaussPoints(elmt % ElementCode/100, UsePRefElement)
+           IntegStuff = EdgeElementGaussPoints(elfamily, UsePRefElement)
          END IF
          RETURN
        END IF
@@ -2554,9 +2558,21 @@ CONTAINS
      ELSE
        pElement = isActivePElement(elm)
      END IF
+     Economic = .FALSE.
      
      IF ( PRESENT(np) ) THEN
        n = np
+       IF( pElement ) THEN
+         IF( elfamily == 3 ) THEN
+           Economic = ANY( EconTriangle == n )
+         ELSE IF( elfamily == 5 ) THEN           
+           Economic = ANY( EconTetra == n )
+         END IF
+         
+
+         
+       END IF
+       
      ELSE IF( PRESENT( RelOrder ) ) THEN
        IF (pElement) THEN
          n = elm % PDefs % GaussPoints
@@ -2572,7 +2588,7 @@ CONTAINS
 
            ! Take into account the case of economic integration. Map a tensor
            ! product rule to a corresponding economic rule.
-           IF (elmt % ElementCode / 100 == 4) THEN
+           IF (elfamily == 4) THEN
              SELECT CASE(n)
              CASE(9)
                n = 8
@@ -2617,7 +2633,7 @@ CONTAINS
        END IF
      END IF
 
-     SELECT CASE( elmt % ElementCode / 100 )
+     SELECT CASE( elfamily )
      CASE (1)
         IntegStuff = GaussPoints0D(n)
 
@@ -2626,7 +2642,11 @@ CONTAINS
 
      CASE (3)
         IF (pElement) THEN
-          IntegStuff = GaussPointsPTriangle(n)
+          IF( Economic ) THEN
+            IntegStuff = GaussPointsTriangle(n,PReferenceElement=.TRUE.)
+          ELSE
+            IntegStuff = GaussPointsPTriangle(n)
+          END IF
         ELSE
           IntegStuff = GaussPointsTriangle(n)
         END IF
@@ -2645,18 +2665,22 @@ CONTAINS
        END IF
 
      CASE (5)
-        IF (pElement) THEN
+       IF (pElement) THEN
+         IF( Economic ) THEN
+           IntegStuff = GaussPointsTetra(n, PreferenceElement = .TRUE.)
+         ELSE
            IntegStuff = GaussPointsPTetra(n)
-        ELSE
-           IntegStuff = GaussPointsTetra(n)
-        END IF
-
+         END IF
+       ELSE
+         IntegStuff = GaussPointsTetra(n)
+       END IF
+       
      CASE (6)
-        IF (pElement) THEN
-           IntegStuff = GaussPointsPPyramid(n)
-        ELSE
-           IntegStuff = GaussPointsPyramid(n)
-        END IF
+       IF (pElement) THEN
+         IntegStuff = GaussPointsPPyramid(n)
+       ELSE
+         IntegStuff = GaussPointsPyramid(n)
+       END IF
 
       CASE (7)
         IF( PRESENT( np ) ) THEN

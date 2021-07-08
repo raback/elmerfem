@@ -273,7 +273,7 @@ CONTAINS
     ! so we need to switch to using a quadrature which would not be used 
     ! otherwise
     !------------------------------------------------------------------------
-    IF( .FALSE. ) THEN
+    IF( .TRUE. ) THEN
       ! This rule should be ok, but there seems to be two sets of IPs for
       ! reference element. 
       IP = GaussPointsAdapt( Element, PReferenceElement = .TRUE. )
@@ -757,6 +757,39 @@ CONTAINS
     REAL(KIND=dp) :: Basis(n), DetJ, s
 
 
+    LOGICAL :: Visited = .FALSE.
+
+    IF(.NOT. Visited ) THEN
+      PRINT *,'triangle'
+      DO i=1,20
+        IP = GaussPointsTriangle(i, PReferenceElement=.TRUE.)
+        PRINT *,'old:',i,IP % n
+        IP = GaussPointsPTriangle(i )
+        PRINT *,'new:',i,IP % n
+     END DO
+      PRINT *,'quad'
+      DO i=1,20
+        IP = GaussPointsQuad(i)
+        PRINT *,'i:',i,IP % n
+      END DO
+      PRINT *,'tetra:'
+      DO i=1,20
+        IP = GaussPointsTetra(i, PReferenceElement=.TRUE.)
+        PRINT *,'i:',i,IP % n
+        IP = GaussPointsPTetra(i)
+        PRINT *,'p:',i,IP % n
+      END DO
+      PRINT *,'brick'
+      DO i=1,80
+        IP = GaussPointsBrick(i)
+        PRINT *,'i:',i,IP % n
+      END DO
+
+      Visited = .TRUE.
+    END IF
+
+
+    
     !------------------------------------------------------------------------
     ! The reference element is chosen to be that used for p-approximation,
     ! so we need to switch to using a quadrature which would not be used 
