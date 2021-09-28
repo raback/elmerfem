@@ -18898,7 +18898,8 @@ CONTAINS
 !> to normal Lagrangian elements.
 !------------------------------------------------------------------------------
   SUBROUTINE MakePermUsingMask( Model,Solver,Mesh,MaskName, &
-       OptimizeBW, Perm, LocalNodes, MaskOnBulk, RequireLogical, ParallelComm )
+      OptimizeBW, Perm, LocalNodes, MaskOnBulk, RequireLogical, &
+      ParallelComm, pSolver )
 !------------------------------------------------------------------------------
     TYPE(Model_t)  :: Model
     TYPE(Mesh_t)   :: Mesh
@@ -18910,6 +18911,7 @@ CONTAINS
     LOGICAL, OPTIONAL :: MaskOnBulk
     LOGICAL, OPTIONAL :: RequireLogical
     LOGICAL, OPTIONAL :: ParallelComm
+    TYPE(Solver_t), OPTIONAL :: pSolver
 !------------------------------------------------------------------------------
     INTEGER, POINTER :: InvPerm(:), Neighbours(:)
     INTEGER, ALLOCATABLE :: s_e(:,:), r_e(:), fneigh(:), ineigh(:)
@@ -18920,7 +18922,7 @@ CONTAINS
     LOGICAL, ALLOCATABLE :: IsNeighbour(:)
     INTEGER :: Indexes(30), ElemStart, ElemFin, Width
     TYPE(ListMatrixEntry_t), POINTER :: CList, Lptr
-    TYPE(Element_t), POINTER :: CurrentElement,Elm
+    TYPE(Element_t), POINTER :: Element,Elm
     REAL(KIND=dp) :: MinDist, Dist
 !------------------------------------------------------------------------------
 
@@ -18939,7 +18941,12 @@ CONTAINS
     END IF
 
     IF(.NOT. ASSOCIATED( Perm ) ) THEN
-      ALLOCATE( Perm( Mesh % NumberOfNodes ) )
+      IF( PRESENT( pSolver ) ) THEN
+        n = SIZE( pSolver % Variable % Perm )
+      ELSE
+        n = Mesh % NumberOfNodes
+      END IF
+      ALLOCATE( Perm( n ) )
       Perm = 0
     END IF
 
@@ -18986,11 +18993,11 @@ CONTAINS
 
 100 DO t=ElemStart, ElemFin
        
-       CurrentElement => Mesh % Elements(t)
+       Element => Mesh % Elements(t)
        
        Hit = .FALSE.
        IF(t <= Mesh % NumberOfBulkElements) THEN
-          l = CurrentElement % BodyId
+          l = Element % BodyId
 	  bf_id = ListGetInteger( Model % Bodies(l) % Values, 'Body Force',Found)
 	  IF( bf_id>0 ) THEN
             IF( MaskIsLogical ) THEN
@@ -19001,7 +19008,7 @@ CONTAINS
 	  END IF 
        ELSE
           DO l=1, Model % NumberOfBCs
-            IF ( Model % BCs(l) % Tag /= CurrentElement % BoundaryInfo % Constraint ) CYCLE
+            IF ( Model % BCs(l) % Tag /= Element % BoundaryInfo % Constraint ) CYCLE
             IF( MaskIsLogical ) THEN
               Hit = ListGetLogical(Model % BCs(l) % Values,MaskName, Found ) 
             ELSE
@@ -19011,10 +19018,14 @@ CONTAINS
           END DO
        END IF       
        IF( .NOT. Hit ) CYCLE       
-       
-       n = CurrentElement % TYPE % NumberOfNodes
-       Indexes(1:n) = CurrentElement % NodeIndexes(1:n)
-       
+
+       IF( PRESENT(pSolver) ) THEN
+         n = mGetElementDOFs( Indexes, Element, pSolver )
+       ELSE
+         n = Element % TYPE % NumberOfNodes
+         Indexes(1:n) = Element % NodeIndexes(1:n)
+       END IF
+         
        IF( FirstRound ) THEN
           DO i=1,n
              j = Indexes(i)
