@@ -359,7 +359,7 @@ CONTAINS
     TYPE(Nodes_t), SAVE :: Nodes
     TYPE(ValueHandle_t), SAVE :: Source_h, Cond_h, Cp_h, Rho_h, ConvFlag_h, &
         ConvVelo_h, PerfRate_h, PerfDens_h, PerfCp_h, &
-        PerfRefTemp_h, VolSource_h
+        PerfRefTemp_h, VolSource_h, OrigMesh_h
     TYPE(VariableHandle_t), SAVE :: ConvField_h
     
     
@@ -391,7 +391,9 @@ CONTAINS
       CALL ListInitElementKeyword( PerfDens_h,'Body Force','Perfusion Density')
       CALL ListInitElementKeyword( PerfRefTemp_h,'Body Force','Perfusion Reference Temperature')
       CALL ListInitElementKeyword( PerfCp_h,'Body Force','Perfusion Heat Capacity')
-           
+
+      CALL ListInitElementKeyword( OrigMesh_h,'Equation','Convection Original Mesh')
+      
       InitHandles = .FALSE.
     END IF
     
@@ -414,8 +416,12 @@ CONTAINS
       END IF
     END IF
 
-    CALL GetElementNodesVec( Nodes, UElement=Element )
-    
+    IF( ListGetElementLogical( OrigMesh_h ) ) THEN      
+      CALL GetElementNodesOrigVec( Nodes, UElement=Element )
+    ELSE
+      CALL GetElementNodesVec( Nodes, UElement=Element )
+    END IF
+      
     ! Initialize
     MASS  = 0._dp
     STIFF = 0._dp
@@ -487,7 +493,8 @@ CONTAINS
     TYPE(GaussIntegrationPoints_t) :: IP
     TYPE(Nodes_t), SAVE :: Nodes
     TYPE(ValueHandle_t), SAVE :: Source_h, Cond_h, Cp_h, Rho_h, ConvFlag_h, &
-        ConvVelo_h, PerfRate_h, PerfDens_h, PerfCp_h, PerfRefTemp_h, VolSource_h
+        ConvVelo_h, PerfRate_h, PerfDens_h, PerfCp_h, PerfRefTemp_h, VolSource_h, &
+        OrigMesh_h
     TYPE(VariableHandle_t), SAVE :: ConvField_h
 !------------------------------------------------------------------------------
 
@@ -511,7 +518,9 @@ CONTAINS
       CALL ListInitElementKeyword( PerfDens_h,'Body Force','Perfusion Density')
       CALL ListInitElementKeyword( PerfRefTemp_h,'Body Force','Perfusion Reference Temperature')
       CALL ListInitElementKeyword( PerfCp_h,'Body Force','Perfusion Heat Capacity')
-     
+
+      CALL ListInitElementKeyword( OrigMesh_h,'Equation','Convection Original Mesh')
+      
       InitHandles = .FALSE.
     END IF
     
@@ -527,8 +536,12 @@ CONTAINS
       END IF
     END IF
 
-    CALL GetElementNodes( Nodes, UElement=Element )
-
+    IF( ListGetElementLogical( OrigMesh_h ) ) THEN
+      CALL GetElementNodesOrig( Nodes, UElement=Element )
+    ELSE
+      CALL GetElementNodes( Nodes, UElement=Element )
+    END IF
+      
     ! Initialize
     MASS  = 0._dp
     STIFF = 0._dp
