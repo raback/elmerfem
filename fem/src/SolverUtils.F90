@@ -4734,7 +4734,7 @@ CONTAINS
 !------------------------------------------------------------------------------
   SUBROUTINE VectorValuesRange(x,n,str,AlwaysSerial)
 !------------------------------------------------------------------------------    
-    REAL(KIND=dp), POINTER :: x(:)
+    REAL(KIND=dp) :: x(:)
     INTEGER :: n
     CHARACTER(LEN=*) :: str
     LOGICAL, OPTIONAL :: AlwaysSerial
@@ -4742,7 +4742,7 @@ CONTAINS
     REAL(KIND=dp) :: s(3)
     LOGICAL :: Parallel, Found
     
-    IF(.NOT. ASSOCIATED(x) ) RETURN
+    !IF(.NOT. ASSOCIATED(x) ) RETURN
     
     Parallel = ( ParEnv % PEs > 1)
     IF( Parallel ) THEN
@@ -7538,7 +7538,7 @@ END SUBROUTINE SetNodalSources
         NodeIndexes => ListGetIntegerArray( ValueList,'Target Nodes')
         n = SIZE(NodeIndexes)
 
-        PRINT *,'ParEnv:',ParEnv % MyPe, NodeIndexes
+!        PRINT *,'ParEnv:',ParEnv % MyPe, NodeIndexes
         IF(ANY(NodeIndexes>0)) THEN
           CALL SetPointLoads(n)
         END IF
@@ -13988,7 +13988,7 @@ END FUNCTION SearchNodeL
     END IF
 
     IF( Parallel ) THEN
-      CALL Info('SolveLinearSystem','Assuming parallel linear system',Level=6)
+      CALL Info('SolveLinearSystem','Assuming parallel linear system',Level=8)
     ELSE
       CALL Info('SolveLinearSystem','Assuming serial linear system',Level=8)
     END IF  
@@ -16231,6 +16231,11 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, Solut
   CollectionVector = 0.0_dp
   CollectionSolution = 0.0_dp
 
+
+  ComplexSystem = StiffMatrix % COMPLEX
+  ComplexSystem = ComplexSystem .OR. ListGetLogical( Solver % Values, &
+           'Linear System Complex', Found )
+  
 !------------------------------------------------------------------------------
 ! If multiplier should be exported,  allocate memory and export the variable.
 !------------------------------------------------------------------------------
@@ -16242,9 +16247,16 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, Solut
   IF ( ExportMultiplier ) THEN
      MultiplierName = ListGetString( Solver % Values, 'Lagrange Multiplier Name', Found )
      IF ( .NOT. Found ) THEN
-        CALL Info( Caller, &
-              'Lagrange Multiplier Name set to LagrangeMultiplier', Level=6 )
-        MultiplierName = "LagrangeMultiplier"
+       IF( ComplexSystem ) THEN
+         MultiplierName = 'LagrangeMultiplier[LagrangeMultiplier Re:1 LagrangeMultiplier Im:1]'
+       ELSE
+         MultiplierName = 'LagrangeMultiplier'
+       END IF       
+       CALL Info( Caller, &
+           'Lagrange Multiplier Name set to: '//TRIM(MultiplierName), Level=6 )
+     ELSE
+       CALL Info( Caller, &
+           'Lagrange Multiplier Name given to: '//TRIM(MultiplierName), Level=6 )       
      END IF
 
      MultVar => VariableGet(Solver % Mesh % Variables, MultiplierName)
@@ -16258,8 +16270,13 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, Solut
        IF ( istat /= 0 ) CALL Fatal(Caller,'Memory allocation error.')
 
        MultiplierValues = 0.0_dp
-       CALL VariableAdd(Solver % Mesh % Variables, Solver % Mesh, SolverPointer, &
-                  MultiplierName, 1, MultiplierValues)      
+       IF( ComplexSystem ) THEN
+         CALL VariableAddVector(Solver % Mesh % Variables, Solver % Mesh, SolverPointer, &
+             MultiplierName, 2, MultiplierValues)               
+       ELSE
+         CALL VariableAdd(Solver % Mesh % Variables, Solver % Mesh, SolverPointer, &
+             MultiplierName, 1, MultiplierValues)      
+       END IF
        MultVar => VariableGet(Solver % Mesh % Variables, MultiplierName)
      END IF
           
@@ -16295,10 +16312,6 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, Solut
   EnforceDirichlet = ListGetLogical( Solver % Values, 'Enforce Exact Dirichlet BCs',Found)
   IF(.NOT.Found) EnforceDirichlet = .TRUE.
   EnforceDirichlet = EnforceDirichlet .AND. ALLOCATED(StiffMatrix % ConstrainedDOF)
-
-  ComplexSystem = StiffMatrix % COMPLEX
-  ComplexSystem = ComplexSystem .OR. ListGetLogical( Solver % Values, &
-           'Linear System Complex', Found )
 
   UseTranspose = ListGetLogical( Solver % Values, 'Use Transpose values', Found)
 
@@ -16849,7 +16862,7 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, Solut
         SIZE(CollectionVector),'CollectionVector')           
   END IF
   
-  CALL Info( Caller, 'CollectionMatrix done', Level=5 )
+  CALL Info( Caller, 'CollectionMatrix done', Level=10 )
 
 !------------------------------------------------------------------------------
 ! Assign values to CollectionVector
@@ -16871,14 +16884,13 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, Solut
   CollectionMatrix % ExtraDOFs = CollectionMatrix % NumberOfRows - &
                   StiffMatrix % NumberOfRows
 
+
   CollectionMatrix % ParallelDOFs = 0
-  IF( Parallel ) THEN
-    IF(ASSOCIATED(AddMatrix)) &
-        CollectionMatrix % ParallelDOFs = MAX(AddMatrix % NumberOfRows - &
-        StiffMatrix % NumberOfRows,0)
-  END IF
+  IF(ASSOCIATED(AddMatrix)) &
+    CollectionMatrix % ParallelDOFs = MAX(AddMatrix % NumberOfRows - &
+            StiffMatrix % NumberOfRows,0)
     
-  CALL Info( Caller, 'CollectionVector done', Level=5 )
+  CALL Info( Caller, 'CollectionVector done', Level=10 )
 
 !------------------------------------------------------------------------------
 ! Solve the Collection-system 
@@ -17773,15 +17785,16 @@ CONTAINS
     REAL(KIND=dp), ALLOCATABLE :: MASS(:,:)
     REAL(KIND=dp), POINTER :: Basis(:)
     REAL(KIND=dp) :: detJ, val, c(3), pc(3), Normal(3), coeff, Omega, Rho, area, fdiag
-    LOGICAL :: Stat, IsHarmonic
+    LOGICAL :: Stat, IsHarmonic, IsTransient
     INTEGER :: dim,mat_id,tcount
     LOGICAL :: FreeF, FreeS, FreeFim, FreeSim, UseDensity, Found
     LOGICAL, ALLOCATABLE :: NodeDone(:)
-    REAL(KIND=dp) :: MultSF, MultFS
+    REAL(KIND=dp) :: MultSF, MultFS, dt
     CHARACTER(*), PARAMETER :: Caller = 'FsiCouplingAssembly'
-   
+    TYPE(Variable_t), POINTER :: dtVar
     
-    CALL Info(Caller,'Creating coupling matrix for harmonic FSI',Level=6)
+    
+    CALL Info(Caller,'Creating coupling matrix for FSI',Level=6)
 
     
     IF( A_fs % FORMAT /= MATRIX_LIST ) THEN
@@ -17797,12 +17810,30 @@ CONTAINS
     fdofs = FVar % Dofs
     sdofs = SVar % Dofs
 
-    IF( IsPlate ) CALL Info(Caller,'Assuming structure to be plate',Level=8)
 
-    IF( IsShell ) CALL Info(Caller,'Assuming structure to be shell',Level=8)
+    n = COUNT( FPerm>0 .AND. SPerm>0 ) 
+    IF( n == 0 ) THEN
+      CALL List_toCRSMatrix(A_fs)
+      CALL List_toCRSMatrix(A_sf)
+      CALL Info(Caller,'No shared nodes between fluid and structure! Nothing to do!',Level=6)
+      RETURN
+    END IF
 
-    IF( IsNS ) CALL Info(Caller,'Assuming fluid to have velocities',Level=8)
-
+    
+    IF( IsPlate ) THEN
+      CALL Info(Caller,'Assuming structure to be plate',Level=8)
+    ELSE IF( IsShell ) THEN
+      CALL Info(Caller,'Assuming structure to be shell',Level=8)
+    ELSE
+      CALL Info(Caller,'Assuming structure to be solid',Level=8)      
+    END IF
+      
+    IF( IsNS ) THEN
+      CALL Info(Caller,'Assuming fluid to have velocities',Level=8)
+    ELSE
+      CALL Info(Caller,'Assuming fluid to have pressure',Level=8)
+    END IF
+      
 
     UseDensity = .FALSE.
     DO i=1,CurrentModel % NumberOfSolvers
@@ -17848,8 +17879,16 @@ CONTAINS
     ! The elasticity solver defines whether the system is real or harmonic
     IF( IsHarmonic ) THEN
       CALL Info(Caller,'Assuming harmonic coupling matrix',Level=10)
+      IsTransient = .FALSE.
     ELSE
       CALL Info(Caller,'Assuming real valued coupling matrix',Level=10)
+      IsTransient = ( ListGetString( CurrentModel % Simulation,&
+          'Simulation Type' ) == 'transient' ) 
+      IF( IsTransient ) THEN
+        CALL Info(Caller,'Assuming transient coupling matrix',Level=10)
+      ELSE
+        CALL Info(Caller,'Assuming steady-state coupling matrix',Level=10)       
+      END IF      
     END IF
 
     
@@ -17888,8 +17927,11 @@ CONTAINS
       IF( .NOT. Stat) THEN
         CALL Fatal(Caller,'Frequency in Simulation list not found!')
       END IF
+      dt = 0.0_dp
     ELSE
       Omega = 0.0_dp
+      dtVar => VariableGet( Solver % Mesh % Variables,'timestep size')
+      dt = dtVar % Values(1)
     END IF
     
     i = SIZE( FVar % Values ) 
@@ -18056,7 +18098,9 @@ CONTAINS
                 val = omega
                 jstruct = sdofs*(SPerm(jj)-1)+2*(k-1)+1  
               ELSE
-                CALL Fatal(Caller,'NS coupling only done for harmonic system!')               
+                val = 1.0/dt
+                jstruct = sdofs*(SPerm(jj)-1)+k 
+                CALL Fatal(Caller,'NS coupling only done for harmonic elasticity!')               
               END IF
 
                 
@@ -18067,10 +18111,9 @@ CONTAINS
                 ! By default the plate should be oriented so that normal points to z
                 ! If there is a plate then fluid is always 3D
                 IF( Normal(3) < 0 ) val = -val
-
                 jstruct = sdofs*(SPerm(jj)-1)+1
               ELSE
-                CALL Fatal(Caller,'NS coupling only done for harmonic system!')               
+                CALL Fatal(Caller,'NS coupling only done for harmonic plates!')               
               END IF
             END IF
 
@@ -18087,14 +18130,23 @@ CONTAINS
               IF( FreeFim ) THEN
                 CALL AddToMatrixElement(A_fs,ifluid+1,jstruct,-MultFS*val*fdiag)      ! Im
               ELSE                
-                CALL AddToMatrixElement(A_fs,ifluid+1,jstruct+1,0.0_dp )
+                CALL AddToMatrixElement(A_fs,ifluid+1,jstruct,0.0_dp )
               END IF
 
               ! These must be created for completeness because the matrix topology of complex
               ! matrices must be the same for all components.
               CALL AddToMatrixElement(A_fs,ifluid,jstruct,0.0_dp)
               CALL AddToMatrixElement(A_fs,ifluid+1,jstruct+1,0.0_dp)
-            ELSE
+            ELSE IF( IsTransient ) THEN
+              ! Structure load on the fluid: v = (u-u_prev)/dt              
+              fdiag = A_f % Values( A_f % diag(ifluid) )
+              IF( FreeF ) THEN
+                CALL AddToMatrixElement(A_fs,ifluid,jstruct+1,MultFS*val*fdiag) 
+                A_f % rhs(ifluid) = A_f % rhs(ifluid) + MultFS*val*fdiag * &
+                    SVar % PrevValues(jstruct,1)
+              ELSE
+                CALL AddToMatrixElement(A_fs,ifluid,jstruct,0.0_dp)
+              END IF                            
               CALL Fatal(Caller,'NS coupling only done for harmonic system!')
             END IF
           END DO
@@ -18513,6 +18565,14 @@ CONTAINS
     CALL Info(Caller,'Assuming '//TRIM(I2S(dim))//&
         ' active dimensions',Level=10)   
 
+    n = COUNT( FPerm>0 .AND. SPerm>0 ) 
+    IF( n == 0 ) THEN
+      CALL List_toCRSMatrix(A_fs)
+      CALL List_toCRSMatrix(A_sf)
+      CALL Info(Caller,'No shared nodes between two structures! Nothing to do!',Level=6)
+      RETURN
+    END IF
+    
     IF( A_fs % FORMAT == MATRIX_LIST ) THEN
       ! Add the largest entry that allocates the whole list matrix structure
       CALL AddToMatrixElement(A_fs,nf,ns,0.0_dp)
@@ -18523,14 +18583,6 @@ CONTAINS
       A_sf % Values = 0.0_dp      
     END IF
 
-    n = COUNT( FPerm>0 .AND. SPerm>0 ) 
-    IF( n == 0 ) THEN
-      CALL List_toCRSMatrix(A_fs)
-      CALL List_toCRSMatrix(A_sf)
-      CALL Info(Caller,'No shared nodes between two structures! Nothing to do!',Level=6)
-      RETURN
-    END IF
-    
     DoMass = .FALSE.
     IF( ASSOCIATED( A_f % MassValues ) ) THEN
       IF( ASSOCIATED( A_s % MassValues ) ) THEN
@@ -20102,7 +20154,6 @@ CONTAINS
      CHARACTER(*), PARAMETER :: Caller = 'GenerateProjectors'
      TYPE(Solver_t), POINTER :: PSolver
      TYPE(Matrix_t), POINTER :: Proj
-     CHARACTER(LEN=MAX_NAME_LEN) :: MultName
 
 
      ApplyIntegral = ListGetLogical( Solver % Values,'Apply Integral BCs',Found)
@@ -21372,8 +21423,8 @@ CONTAINS
      IF ( ListGetLogical( Solver % Values,'Apply Contact BCs', Found ) .AND. &
          ALLOCATED( PrevInvPerm ) ) THEN
        MultName = ListGetString( Solver % Values, 'Lagrange Multiplier Name', Found )
-       IF ( .NOT. Found ) MultName = "LagrangeMultiplier"
-
+       IF ( .NOT. Found ) MultName = 'LagrangeMultiplier'
+         
        Var => VariableGet(Solver % Mesh % Variables, MultName)
        IF( ASSOCIATED( Var ) ) THEN
          ALLOCATE( PrevValues( SIZE( Var % Values ) ) )
@@ -22009,7 +22060,7 @@ CONTAINS
        
      IF ( ExportMult ) THEN
        MultName = ListGetString( Solver % Values, 'Lagrange Multiplier Name', Found )
-       IF ( .NOT. Found ) MultName = "LagrangeMultiplier"
+       IF ( .NOT. Found ) MultName = 'LagrangeMultiplier'
        Var => VariableGet(Solver % Mesh % Variables, MultName)
        ExportMult = ASSOCIATED( Var ) 
        IF( ExportMult ) THEN

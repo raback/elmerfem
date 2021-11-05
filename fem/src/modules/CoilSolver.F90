@@ -65,10 +65,11 @@ SUBROUTINE CoilSolver_init( Model,Solver,dt,TransientSimulation )
 !------------------------------------------------------------------------------
 ! Local variables
 !------------------------------------------------------------------------------
-  TYPE(ValueList_t), POINTER :: Params 
-  INTEGER :: dim
+  TYPE(ValueList_t), POINTER :: Params, BC 
+  INTEGER :: dim, i
   LOGICAL :: Found, CalcCurr, CalculateElemental, CalculateNodal
-
+  INTEGER, POINTER :: ElBCs(:)
+  
   dim = CoordinateSystemDimension()
   Params => GetSolverParams()
 
@@ -86,7 +87,8 @@ SUBROUTINE CoilSolver_init( Model,Solver,dt,TransientSimulation )
         'CoilFix')
   END IF
     
-  IF( GetLogical( Params,'Coil Closed', Found ) ) THEN
+  IF( GetLogical( Params,'Coil Closed', Found ) .OR. &
+      ListGetLogicalAnyComponent( Model,'Coil Closed') ) THEN
     CALL ListAddString( Params,NextFreeKeyword('Exported Variable',Params),&
         'CoilPotB')
     CALL ListAddString( Params,NextFreeKeyword('Exported Variable',Params),&
@@ -125,9 +127,32 @@ SUBROUTINE CoilSolver_init( Model,Solver,dt,TransientSimulation )
         NextFreeKeyword('Exported Variable',Params),&
         '-dofs '//TRIM(I2S(dim))//' CoilCurrent')
   END IF
-      
+
 ! Loads are needed to compute the induced currents in a numerically optimal way
   CALL ListAddLogical( Params,'Calculate Loads',.TRUE.)
+
+  DO i=1,Model % NumberOfComponents 
+    Params => Model % Components(i) % Values
+
+    ElBCs => ListGetIntegerArray(Params, 'Electrode Boundaries', Found)
+    IF(.NOT. Found) CYCLE
+
+    IF(SIZE(ElBCs) /= 2) THEN
+      CALL Warn('CoilSolver_init','For CoilSolver the size of "Electrode Boundaries must be two!')
+      CYCLE
+    END IF
+    
+    BC => CurrentModel % BCs(ElBCs(1)) % Values
+    IF (.NOT. ASSOCIATED(BC) ) CALL Fatal('CoilSolver_init', 'Boundary not found!')    
+    CALL ListAddLogical( BC,'Coil End',.TRUE.)
+
+    BC => CurrentModel % BCs(ElBCs(2)) % Values
+    IF (.NOT. ASSOCIATED(BC) ) CALL Fatal('CoilSolver_init', 'Boundary not found!')    
+    CALL ListAddLogical( BC,'Coil Start',.TRUE.)
+    
+    CALL Info('CoilSolver_init','"Coil Start" and "Coil End" set to "Electrode Boundaries"',Level=5)
+  END DO
+     
 
 END SUBROUTINE CoilSolver_init
 
@@ -162,8 +187,8 @@ SUBROUTINE CoilSolver( Model,Solver,dt,TransientSimulation )
   REAL(KIND=dp) :: CoilCrossSection,InitialCurrent, Coeff, val, x0
   REAL(KIND=dp), ALLOCATABLE :: DesiredCoilCurrent(:), DesiredCurrentDensity(:)
   LOGICAL :: Found, CoilClosed, CoilAnisotropic, UseDistance, FixConductivity, &
-      NormalizeCurrent, FitCoil, SelectNodes, CalcCurr, NarrowInterface
-  LOGICAL, ALLOCATABLE :: GotCurr(:), GotDens(:)
+      FitCoil, SelectNodes, CalcCurr, NarrowInterface
+  LOGICAL, ALLOCATABLE :: GotCurr(:), GotDens(:), NormalizeCoil(:)
   REAL(KIND=dp) :: CoilCenter(3), CoilNormal(3), CoilTangent1(3), CoilTangent2(3), &
       MinCurr(3),MaxCurr(3),TmpCurr(3)
   INTEGER, ALLOCATABLE :: CoilIndex(:)
@@ -207,34 +232,26 @@ SUBROUTINE CoilSolver( Model,Solver,dt,TransientSimulation )
   END IF
   
   
-  CoilClosed = GetLogical( Params,'Coil Closed', Found )
+  CoilClosed = GetLogical( Params,'Coil Closed', Found ) .OR. &
+      ListGetLogicalAnyComponent( Model,'Coil Closed') 
+ 
   IF( CoilClosed ) THEN
+    CALL Info('CoilSolver','Assuming that all coils are closed!',Level=5)
     CoilParts = 2
   ELSE
+    CALL Info('CoilSolver','Assuming that all coils are open!',Level=5)
     IF( .NOT. ListGetLogicalAnyBC( Model,'Coil Start') ) THEN
-      CALL Info('CoilSolver','Assuming coil that is not closed',Level=5)
       CALL Fatal('CoilSolver','> Coil Start < must be defined on some BC')
     END IF
     IF( .NOT. ListGetLogicalAnyBC( Model,'Coil End') ) THEN
-      CALL Info('CoilSolver','Assuming coil that is not closed',Level=5)
       CALL Fatal('CoilSolver','> Coil End < must be defined on some BC')
     END IF
     CoilParts = 1
   END IF
-
-  OneCut = GetLogical( Params,'Single Coil Cut',Found )
-  
-  NarrowInterface = GetLogical( Params,'Narrow Interface',Found )
   
   CalcCurr = GetLogical( Params,'Calculate Coil Current',Found )
   IF( .NOT. Found ) CalcCurr = .TRUE.
 
-  NormalizeCurrent = ListGetLogical( Params,'Normalize Coil Current',Found ) 
-  IF( NormalizeCurrent ) THEN
-    CALL Info('CoilSolver','Normalizing current density (as for stranded coil)',Level=5)
-  END IF
-
-  
   IF( FixConductivity ) THEN
     IF( CoilAnisotropic ) THEN
       MaxNonlinIter = 3
@@ -253,6 +270,9 @@ SUBROUTINE CoilSolver( Model,Solver,dt,TransientSimulation )
     CALL Fatal('CoilSolver','CoilPot not associated!')
   END IF
   IF( CoilParts == 2 ) THEN
+    OneCut = GetLogical( Params,'Single Coil Cut',Found )
+    NarrowInterface = GetLogical( Params,'Narrow Interface',Found )
+
     ALLOCATE( SetB(nsize) )
     SetB = 0 
 
@@ -290,10 +310,11 @@ SUBROUTINE CoilSolver( Model,Solver,dt,TransientSimulation )
   
   MaxNoCoils = MAX( 1, Model % NumberOfComponents ) 
   ALLOCATE( DesiredCoilCurrent( MaxNoCoils ), DesiredCurrentDensity(MaxNoCoils), &
-      GotCurr( MaxNoCoils ), GotDens( MaxNoCoils) )
+      GotCurr( MaxNoCoils ), GotDens( MaxNoCoils), NormalizeCoil(MaxNoCoils) )
   DesiredCoilCurrent = 0.0_dp
   GotCurr = .FALSE.
   GotDens = .FALSE.
+  NormalizeCoil = .FALSE.
 
 
   ! These are different for different coils, would there be many
@@ -316,16 +337,20 @@ SUBROUTINE CoilSolver( Model,Solver,dt,TransientSimulation )
         CoilIndex = 0
       END IF
       NoCoils = NoCoils + 1
-      SelectNodes = .TRUE.
-      CALL DefineCoilCenter( CoilCenter, CoilList, TargetBodies )
-      CALL DefineCoilParameters( CoilNormal, CoilTangent1, CoilTangent2, &
-          CoilList, TargetBodies )
+      IF( CoilClosed ) THEN
+        SelectNodes = .TRUE.      
+        CALL DefineCoilCenter( CoilCenter, CoilList, TargetBodies )
+        CALL DefineCoilParameters( CoilNormal, CoilTangent1, CoilTangent2, &
+            CoilList, TargetBodies )
+      END IF
     ELSE
       IF( NoCoils > 0 ) EXIT
       NoCoils = 1
       CoilList => Params
-      CALL DefineCoilCenter( CoilCenter, Params )
-      CALL DefineCoilParameters( CoilNormal, CoilTangent1, CoilTangent2, Params )
+      IF( CoilClosed ) THEN
+        CALL DefineCoilCenter( CoilCenter, Params )
+        CALL DefineCoilParameters( CoilNormal, CoilTangent1, CoilTangent2, Params )
+      END IF
     END IF
 
     ! Choose nodes where the Dirichlet values are set. 
@@ -358,7 +383,11 @@ SUBROUTINE CoilSolver( Model,Solver,dt,TransientSimulation )
     IF(.NOT. Found ) DesiredCurrentDensity(NoCoils) = 1.0_dp
     GotDens(NoCoils) = Found
 
-
+    NormalizeCoil(NoCoils) = ListGetLogical( CoilList,'Normalize Coil Current',Found )
+    IF(.NOT. Found ) THEN
+      IF( ListGetLogical( Params,'Normalize Coil Current',Found ) ) NormalizeCoil(NoCoils) = .TRUE.
+    END IF
+    
     ! If we know the coil cross section we can relate the wishes in total 
     ! current through cross section and current density. 
     CoilCrossSection = ListGetCReal( CoilList,'Coil Cross Section',Found ) 
@@ -549,9 +578,8 @@ SUBROUTINE CoilSolver( Model,Solver,dt,TransientSimulation )
       CALL Info('CoilSolver',Message,Level=7)
     END DO
 
-    IF( NormalizeCurrent ) THEN
-      CALL NormalizeCurrentDensity() 
-    END IF
+    CALL NormalizeCurrentDensity() 
+
     CALL ListAddLogical( Params,'Calculate Loads',.TRUE.)
   END IF
 
@@ -1917,11 +1945,16 @@ CONTAINS
     INTEGER :: i,elem,t,Coil
     TYPE(GaussIntegrationPoints_t) :: IP
     TYPE(Nodes_t) :: Nodes
-
+    
     SAVE Nodes
 !------------------------------------------------------------------------------
+    
+    IF( .NOT. ANY(NormalizeCoil ) ) THEN
+      CALL Info('CoilSolver','No normalization of current requested!',Level=20)
+      RETURN
+    END IF
 
-    CALL Info('CoilSolver','Normalizing current density to a constant value')
+    CALL Info('CoilSolver','Normalizing current density (as for stranded coil)',Level=5)
 
     n = Mesh % MaxElementNodes
     ALLOCATE( Basis(n), NodalCurr(3,n) )
@@ -1936,6 +1969,8 @@ CONTAINS
 
     DO Coil = 1, NoCoils 
 
+      IF( .NOT. NormalizeCoil(Coil) ) CYCLE
+      
       ! Current is already scaled, but we don't know the desired current density
       ! Let's assume that the average current density is a good candidate
       !--------------------------------------------------------------------------
