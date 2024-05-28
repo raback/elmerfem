@@ -4639,27 +4639,28 @@ CONTAINS
 
    END SUBROUTINE GetCalvingEdgeNodes
 
-   SUBROUTINE MeshVolume(Mesh, Parallel, Volume, ElemMask)
+   SUBROUTINE MeshVolume(Mesh, Parallel, Volume, ElemMask, Centroid)
 
       TYPE(Mesh_t), POINTER :: Mesh
       LOGICAL :: Parallel
       REAL(kind=dp) :: Volume
       LOGICAL, OPTIONAL :: ElemMask(:)
+      REAL(kind=dp), OPTIONAL :: Centroid(3)
       !-----------------------------
       TYPE(Element_t), POINTER :: Element
       INTEGER :: i, j, NBdry, NBulk, n, ierr
       INTEGER, ALLOCATABLE :: ElementNodes(:)
       REAL(kind=dp), ALLOCATABLE :: Vertices(:,:), Vectors(:,:), PartVolume(:)
-      REAL(kind=dp) :: det, det1, det2, det3
+      REAL(kind=dp) :: det, Centre(3)
 
       NBdry = Mesh % NumberOfBoundaryElements
       NBulk = Mesh % NumberOfBulkElements
 
       ALLOCATE(Vertices(4,3), Vectors(3,3))
 
-
       ! calculate volume of each bulk tetra. Add these together to get mesh volume
       Volume = 0.0_dp
+      IF(PRESENT(Centroid)) Centroid = 0.0_dp
       DO, i=1, NBulk
         IF(PRESENT(ElemMask)) THEN
           IF(.NOT. ElemMask(i)) CYCLE
@@ -4688,10 +4689,16 @@ CONTAINS
                 - Vectors(1,2) * (Vectors(2,1)*Vectors(3,3) - Vectors(2,3)*Vectors(3,1)) &
                 + Vectors(1,3) * (Vectors(2,1)*Vectors(3,2) - Vectors(2,2)*Vectors(3,1)))
 
+        Centre(1) = SUM(Vertices(:,1))/4
+        Centre(2) = SUM(Vertices(:,2))/4
+        Centre(3) = SUM(Vertices(:,3))/4
+
         ! tetra volume = det/6
         Volume = Volume + Det/6
-
+        IF(PRESENT(Centroid)) Centroid = Centroid + Det/6 * Centre
       END DO
+
+      IF(PRESENT(Centroid)) Centroid = Centroid / Volume
 
       ! if parallel calculate total mesh volume over all parts
       IF(Parallel) THEN
@@ -7842,8 +7849,8 @@ CONTAINS
     LOGICAL, ALLOCATABLE :: FoundNode(:), UsedElem(:), IcebergElem(:), GotNode(:), &
         NodeCount(:)
     CHARACTER(LEN=MAX_NAME_LEN) :: Filename
-    REAL(kind=dp), ALLOCATABLE :: BergVolumes(:), BergExtents(:)
-    REAL(kind=dp) :: BergVolume, extent(4)
+    REAL(kind=dp), ALLOCATABLE :: BergVolumes(:), BergExtents(:), BergCentroids(:)
+    REAL(kind=dp) :: BergVolume, extent(4), Centroid(3)
 
     Filename = ListGetString(Params,"Calving Stats File Name", Found)
     IF(.NOT. Found) THEN
@@ -7858,7 +7865,7 @@ CONTAINS
     !limit here of 10 possible mesh 'islands'
     ALLOCATE(FoundNode(NNodes), NodeCount(NNodes), ElNodes(4), &
               UsedElem(NBulk), IceBergElem(NBulk), BergVolumes(100), &
-              BergExtents(100 * 4))
+              BergExtents(100 * 4), BergCentroids(100*3))
     FoundNode = .FALSE.
     NodeCount = .NOT. Mask
     UsedElem = .FALSE. !count of elems used
@@ -7898,7 +7905,7 @@ CONTAINS
           IcebergElem(i) = .TRUE.
         END DO
         iceberg = iceberg + 1
-        CALL MeshVolume(Mesh, .FALSE., BergVolume, IcebergElem)
+        CALL MeshVolume(Mesh, .FALSE., BergVolume, IcebergElem, Centroid)
         CALL IcebergExtent(Mesh, IcebergElem, Extent)
 
         IF(SIZE(BergVolumes) < Iceberg) CALL DoubleDPVectorSize(BergVolumes)
@@ -7907,8 +7914,11 @@ CONTAINS
         IF(SIZE(BergExtents) < Iceberg*4) CALL DoubleDPVectorSize(BergExtents)
         BergExtents(iceberg*4-3:iceberg*4) = Extent
 
+        IF(SIZE(BergCentroids) < Iceberg*3) CALL DoubleDPVectorSize(BergCentroids)
+        BergCentroids(iceberg*3-2:iceberg*3) = Centroid
+
         IF(Iceberg > 0) THEN ! not first time
-          PRINT*, 'Iceberg no.', Iceberg, BergVolume, 'extent', extent
+          PRINT*, 'Iceberg no.', Iceberg, BergVolume, 'extent', extent, 'centroid', centroid
         END IF
       END IF
     END DO
@@ -7931,8 +7941,9 @@ CONTAINS
 
     DO i=1,iceberg
 
-        WRITE(36, '(A,i0,A,F20.0,A,F12.4,F12.4,F12.4,F12.4)') 'Iceberg ',i, ' Volume ', BergVolumes(i),&
-          ' Extent ', BergExtents(i*4-3:i*4)
+        WRITE(36, '(A,i0,A,F20.0,A,F12.4,F12.4,F12.4,F12.4,A,F12.4,F12.4,F12.4)') &
+          'Iceberg ',i, ' Volume ', BergVolumes(i),&
+          ' Extent ', BergExtents(i*4-3:i*4), ' Centroid ', BergCentroids(i*3-2:i*3)
 
     END DO
 
