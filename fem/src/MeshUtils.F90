@@ -1437,6 +1437,8 @@ CONTAINS
        Mesh % MaxBDOFs    * Mesh % NumberOFBulkElements
    n0 = SIZE( Mesh % Nodes % x )
 
+   IF(.NOT. ASSOCIATED(Mesh % Nodes % x)) n0 = 0
+
    pelementsPresent = .FALSE.
    DO i=1,Mesh % NumberOfBulkElements
      IF(isPelement(Mesh % Elements(i))) THEN
