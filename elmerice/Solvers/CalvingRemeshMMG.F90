@@ -183,7 +183,11 @@ SUBROUTINE CalvingRemeshMMG( Model, Solver, dt, Transient )
   remesh_thresh = ListGetConstReal(SolverParams,"Remeshing Distance", DefValue=1000.0_dp)
   LsetMinQuality = ListGetConstReal(SolverParams,"Mesh Min Quality", DefValue=0.00001_dp)
   RmcValue = ListGetConstReal(SolverParams,"Mesh Rmc Value", DefValue=1e-15_dp)
-  CalvingVarName = ListGetString(SolverParams,"Calving Variable Name", DefValue="Calving Lset")
+  CalvingVarName = ListGetString(SolverParams, "Calving Variable Name", Found)
+  IF(.NOT. Found) THEN
+    CALL WARN(SolverName, "'Levelset Variable Name' not set so assuming 'Calving Lset'.")
+    CalvingVarName = "Calving LSet"
+  END IF
   SaveMMGMeshes = ListGetLogical(SolverParams,"Save MMGLS Meshes", DefValue=.FALSE.)
   SaveMMGSols = ListGetLogical(SolverParams,"Save MMGLS Sols", DefValue=.FALSE.)
   IF(SaveMMGMeshes) THEN
@@ -246,7 +250,7 @@ SUBROUTINE CalvingRemeshMMG( Model, Solver, dt, Transient )
   !Get the calving levelset function (-ve inside calving event, +ve in intact ice)
   !-------------------
   IF (CalvingOccurs) THEN
-     CalvingVar => VariableGet(Mesh % Variables, "Calving Lset", .TRUE., UnfoundFatal=.TRUE.)
+     CalvingVar => VariableGet(Mesh % Variables, CalvingVarName, .TRUE., UnfoundFatal=.TRUE.)
 
      ALLOCATE(test_lset(NNodes),&
           calved_node(NNodes)&
