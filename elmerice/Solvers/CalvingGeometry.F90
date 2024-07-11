@@ -1451,15 +1451,15 @@ CONTAINS
     windingnumber=100
     DO i=1, n-1
       ! polygon y i <= point y
-      IF(ZPolygon(2,i) <= ZPoint(2)) THEN !start with y<=P.y
-        IF(ZPolygon(2, i+1) > ZPoint(2)) THEN !upward crossing
+      IF(ZPolygon(2,i) <= ZPoint(2) + buf) THEN !start with y<=P.y
+        IF(ZPolygon(2, i+1) > ZPoint(2) - buf) THEN !upward crossing
           left=IsLeft(ZPolygon(:, i), ZPolygon(:, i+1), ZPoint(:))
           IF(left > buf) THEN !p is to left of intersect
             windingnumber=windingnumber+1 !valid up intersect
           END IF
         END IF
       ELSE    !start at y> point y
-        IF(ZPolygon(2, i+1) <= ZPoint(2)) THEN ! downward crossing
+        IF(ZPolygon(2, i+1) <= ZPoint(2) + buf) THEN ! downward crossing
           Left = IsLeft(ZPolygon(:, i), ZPolygon(:, i+1), ZPoint(:))
           IF(left < buf) THEN ! p right of edge
             windingnumber=windingnumber-1
@@ -8808,6 +8808,7 @@ CONTAINS
       FirstTime=.TRUE.
       GotNode = .FALSE.
       counter = 0
+      LastNode = 0
       DO WHILE(LastNode /= FrontRight(1))
         Found = .FALSE.
         IF(FirstTime) THEN
