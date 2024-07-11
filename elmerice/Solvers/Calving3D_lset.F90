@@ -1477,6 +1477,7 @@
         !    EXIT
         !  END IF
         !END DO
+        CalvingValues(CalvingPerm) = DistValues(DistPerm) + 1
         CALL WARN(SolverName, 'No crevasses so not calculating signed distance')
         !RETURN
      ELSE
