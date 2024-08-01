@@ -2830,7 +2830,7 @@ CONTAINS
 
     !------------ DEALLOCATIONS ------------------
 
-    DEALLOCATE(OnEdge, UnorderedNodeNums, GlobalCorners, CornerParts, PCornerCounts)
+    DEALLOCATE(OnEdge, UnorderedNodeNums, GlobalCorners, CornerParts, PCornerCounts, OrderedNodeNums)
 
     IF(Boss .AND. Parallel) THEN !Deallocations
        DEALLOCATE(UnorderedNodes % x, &
@@ -2842,6 +2842,8 @@ CONTAINS
             UOGlobalNodeNums, &
             OrderedGlobalNodeNums)
     END IF
+
+    IF(.NOT. Boss) DEALLOCATE(UnorderedNodes % x, UnorderedNodes % y, UnorderedNodes % z)
 
   END SUBROUTINE GetDomainEdge
 
@@ -6214,6 +6216,8 @@ CONTAINS
       DEALLOCATE(xRail,yRail,AllCorners,disps,PAllCorners,jmin,InFront,Corner,MinDists,PCount,Duplicate)
       NULLIFY(SidePerm)
     END DO
+
+    DEALLOCATE(FrontPerm, TopPerm, LeftPerm, RightPerm)
 
   END SUBROUTINE GetFrontCorners
 
