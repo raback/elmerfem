@@ -5319,7 +5319,7 @@ CONTAINS
     ! all parallel communication changed to use NoUsedNeighbours so neighbouring procs
     ! of those with zero suppnodes (no info) do not over allocate (eg allocate nans)
     !share SuppNodeMask
-    ALLOCATE(PartSuppNodeMask(NoUsedNeighbours+1, 25, MaskCount))
+    ALLOCATE(PartSuppNodeMask(NoUsedNeighbours+1, 50, MaskCount))
     PartSuppNodeMask = .FALSE.
     PartSuppNodeMask(1,:NoSuppNodes,:) = SuppNodeMask
     counter=0
@@ -5338,7 +5338,7 @@ CONTAINS
     END DO
 
     !share SuppNodePMask for prevvalues
-    ALLOCATE(PartSuppNodePMask(NoUsedNeighbours+1, 25, PMaskCount))
+    ALLOCATE(PartSuppNodePMask(NoUsedNeighbours+1, 50, PMaskCount))
     PartSuppNodePMask = .FALSE.
     PartSuppNodePMask(1,:NoSuppNodes,:) = SuppNodePMask
     counter=0
@@ -7945,7 +7945,7 @@ CONTAINS
 
     DO i=1,iceberg
 
-        WRITE(36, '(A,i0,A,F20.0,A,F12.4,F12.4,F12.4,F12.4,A,F12.4,F12.4,F12.4)') &
+        WRITE(36, '(A,i0,A,F20.0,A,F20.4,F20.4,F20.4,F20.4,A,F20.4,F20.4,F20.4)') &
           'Iceberg ',i, ' Volume ', BergVolumes(i),&
           ' Extent ', BergExtents(i*4-3:i*4), ' Centroid ', BergCentroids(i*3-2:i*3)
 
