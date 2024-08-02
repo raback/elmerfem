@@ -602,6 +602,7 @@
          Mesh % Nodes % x(i) = Mesh % Nodes % x(i) + Advance((Perm(i)-1)*DOFs + 1)
          Mesh % Nodes % y(i) = Mesh % Nodes % y(i) + Advance((Perm(i)-1)*DOFs + 2)
          Mesh % Nodes % z(i) = Mesh % Nodes % z(i) + Advance((Perm(i)-1)*DOFs + 3)
+         zb = ListGetRealAtNode(Material, "Min Zs Bottom",i,UnfoundFatal=.TRUE.)
 
          Mesh % Nodes % x(i) = Mesh % Nodes % x(i) - Advance((Perm(i)-1)*DOFs + 1)
          Mesh % Nodes % y(i) = Mesh % Nodes % y(i) - Advance((Perm(i)-1)*DOFs + 2)
