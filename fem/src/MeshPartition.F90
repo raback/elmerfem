@@ -618,7 +618,11 @@ CONTAINS
     
     !Find and globally number mesh faces
     IF(DIM == 3) THEN
-      CALL FindMeshFaces3D(Mesh)
+      IF( NBulk /= 0 ) THEN
+        CALL FindMeshFaces3D(Mesh)
+      ELSE
+        CALL AllocateVector( Mesh % Faces, 6*Mesh % NumberOfBulkElements, 'FindMeshFaces3D' )
+      END IF
       CALL FindMeshEdges3D(Mesh)
       CALL SParFaceNumbering(Mesh)
       MFacePtr => Mesh % Faces
