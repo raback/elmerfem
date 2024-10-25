@@ -737,7 +737,7 @@ END FUNCTION isComponentName
     INTEGER :: ExtMaster
 
     CALL Info('ReadComponents','Reading component: '//I2S(Cid),Level=20)
-    
+
     Circuit => CurrentModel % Circuits(CId)
     
     Circuit % CvarDofs = 0
@@ -775,17 +775,25 @@ END FUNCTION isComponentName
       IF (.NOT. Found) Comp % VoltageFactor = 1._dp
 
       Comp % ElBoundaries => ListGetIntegerArray(CompParams, 'Electrode Boundaries', Found)
-
+      
       ! This is a feature intended to make it easier to extruded meshes internally with
       ! ElmerSolver. The idea is that the code knows which are the BCs that were created
       ! from extruding this 2D body. 
       ExtMaster = 0
       IF(.NOT. Found ) THEN
-        IF( ListGetLogical( CurrentModel % Solver % Values,'Extruded Child BC Electrode', Found ) ) THEN
+        IF( ListGetLogical( CurrentModel % Solver % Values,'Extruded Child BC Electrode', Found ) ) THEN          
+
+          IF( ListGetLogical( CurrentModel % Simulation,"Extruded BCs Collect",Found ) ) THEN
+            CALL Fatal('Circuits_init',&
+                'Conflicting keywords: "Extruded Child BC Electrode" vs. "Extruded BCs Collect"')
+          END IF
+
+          CALL Info('Circuits_init','Setting "Extruded Child BCs"',Level=10)
           BLOCK
             INTEGER :: body_id
             INTEGER, POINTER :: pIntArray(:) => NULL()
-            pIntArray => ListGetIntegerArray(CompParams, 'Master Bodies', Found )
+            pIntArray => ListGetIntegerArray(CompParams, 'Body', Found )
+            IF(.NOT. Found) pIntArray => ListGetIntegerArray(CompParams, 'Master Bodies', Found )
             IF( Found ) THEN
               IF(SIZE(pIntArray)==1) THEN
                 body_id = pIntArray(1)
@@ -793,7 +801,8 @@ END FUNCTION isComponentName
                 pIntArray => ListGetIntegerArray(CurrentModel % Bodies(body_id) % Values,&
                     'Extruded Child BCs',Found )
                 IF(Found) THEN
-                  CALL Info('Circuits_int','Associating "Electrode Boundaries" to extruded bcs!',Level=10)
+                  CALL Info('Circuits_init','Setting Component '//I2S(CompInd)//' "Electrode Boundaries" to '&
+                      //I2S(pIntArray(1))//' '//I2S(pIntArray(2)),Level=10)
                   Comp % ElBoundaries => pIntArray
                   ExtMaster = body_id
                 END IF
@@ -816,8 +825,12 @@ END FUNCTION isComponentName
           IF (.NOT. Found) CALL Fatal('Circuits_Init','Number of Turns not found!')
           
           Comp % ElArea = GetConstReal(CompParams, 'Electrode Area', Found)
-          IF (.NOT. Found) CALL ComputeElectrodeArea(Comp, CompParams, ExtMaster )
-          
+          IF (.NOT. Found) THEN
+            CALL ComputeElectrodeArea(Comp, CompParams, ExtMaster )
+            WRITE(Message,'(A,ES12.5)') 'Component '//I2S(CompInd)//' "Electrode Area" is ',Comp % ElArea
+            CALL Info('Circuits_Init',Message,Level=10)
+          END IF
+            
           Comp % CoilThickness = GetConstReal(CompParams, 'Coil Thickness', Found)
           IF (.NOT. Found) Comp % CoilThickness = 1._dp
 
@@ -870,8 +883,12 @@ END FUNCTION isComponentName
           IF (.NOT. Found) CALL Fatal('Circuits_Init','Number of Turns not found!')
 
           Comp % ElArea = GetConstReal(CompParams, 'Electrode Area', Found)
-          IF (.NOT. Found) CALL ComputeElectrodeArea(Comp, CompParams)
-
+          IF (.NOT. Found) THEN
+            CALL ComputeElectrodeArea(Comp, CompParams )
+            WRITE(Message,'(A,ES12.5)') 'Component '//I2S(CompInd)//' "Electrode Area" is ',Comp % ElArea
+            CALL Info('Circuits_Init',Message,Level=10)
+          END IF
+          
           Comp % N_j = Comp % nofturns / Comp % ElArea
         END SELECT
       END IF
@@ -942,8 +959,9 @@ END FUNCTION isComponentName
       IF (.NOT. ASSOCIATED(Comp % ElBoundaries)) &
           CALL Fatal('ComputeElectrodeArea','Electrode Boundaries not found')      
       BCid = Comp % ElBoundaries(1)
-      IF( BCid > CurrentModel % NumberOfBCs ) &     
+      IF( BCid < 1 .OR. BCid > CurrentModel % NumberOfBCs ) &     
           CALL Fatal('ComputeElectrodeArea', 'BCid is beyond range: '//I2S(BCid))
+
       BC => CurrentModel % BCs(BCid) % Values
       IF (.NOT. ASSOCIATED(BC) ) CALL Fatal('ComputeElectrodeArea', 'Boundary not found!')
       Comp % ElArea = GetConstReal(BC, 'Area', Found)
@@ -2321,11 +2339,9 @@ CONTAINS
     CALL CreateBasicCircuitEquations(Rows, Cols, Cnts)
     CALL CreateComponentEquations(Rows, Cols, Cnts, Done, dofsdone)
     
-
     IF (n /= SUM(Cnts)) THEN
-      print *, "Counted Cnts:", n, "Applied Cnts:", SUM(Cnts)
       CALL Fatal('Circuits_MatrixInit', &
-                 'There were different amount of matrix elements than was counted')
+                 'Inconsistent number of matrix elements: '//I2S(n)//' vs. '//I2S(SUM(CNTs)))
     END IF
 
     DEALLOCATE( Cnts, Done )

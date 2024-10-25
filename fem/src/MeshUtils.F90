@@ -18861,8 +18861,9 @@ CONTAINS
           TmpPair(2) = ChildBCs(2*i)
           CALL ListAddIntegerArray(vList,'Extruded Child BCs',2,TmpPair)
 
-          IF( InfoActive(20) ) THEN
-            PRINT *,'Extruded Child BCs for body:',i,TmpPair
+          IF( InfoActive(10) ) THEN
+            CALL Info(Caller,'Setting Body '//I2S(i)//' "Extruded Child BCs" to '&
+                //I2S(TmpPair(1))//' '//I2S(TmpPair(2)))
           END IF
           NULLIFY(TmpPair)
         END IF

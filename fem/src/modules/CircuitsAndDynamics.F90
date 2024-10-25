@@ -2702,13 +2702,12 @@ SUBROUTINE CircuitsOutput(Model,Solver,dt,Transient)
 
          IF (Cvar % pdofs /= 0 ) THEN
            DO jj = 1, Cvar % pdofs
-             write (dofnumber, "(I2)") jj
              CALL SimListAddAndOutputConstReal(&
                TRIM(Circuits(p) % names(i))&
-               //'re dof '//TRIM(dofnumber), crt(Cvar % ValueId + ReIndex(jj)), Level=10)
+               //'re dof '//I2S(jj), crt(Cvar % ValueId + ReIndex(jj)), Level=10)
              CALL SimListAddAndOutputConstReal(&
                TRIM(Circuits(p) % names(i))&
-               //'im dof '//TRIM(dofnumber), crt(Cvar % ValueId + ImIndex(jj)), Level=10)
+               //'im dof '//I2S(jj), crt(Cvar % ValueId + ImIndex(jj)), Level=10)
            END DO
          END IF
        ELSE
@@ -2717,10 +2716,9 @@ SUBROUTINE CircuitsOutput(Model,Solver,dt,Transient)
          
          IF (Cvar % pdofs /= 0 ) THEN
            DO jj = 1, Cvar % pdofs
-             write (dofnumber, "(I2)") jj
              CALL SimListAddAndOutputConstReal(&
                TRIM(Circuits(p) % names(i))&
-               //'dof '//TRIM(dofnumber), crt(Cvar % ValueId + jj), Level=10)
+               //'dof '//I2S(jj), crt(Cvar % ValueId + jj), Level=10)
            END DO
          END IF
        END IF
@@ -2782,11 +2780,9 @@ CONTAINS
   INTEGER :: LevelVal = 3
 
   IF (PRESENT(Level)) LevelVal = Level
-
-  WRITE(VarVal,'(ES15.4)') VariableValue
-  CALL Info(Caller, TRIM(VariableName)//' '//&
-    TRIM(VarVal), Level=LevelVal)
-
+  WRITE(Message,'(A,T20,ES15.4)') TRIM(VariableName),VariableValue
+  CALL Info(Caller,Message,Level=LevelVal)
+  
   CALL ListAddConstReal(GetSimulation(),TRIM(CktPrefix)//' '//TRIM(VariableName), VariableValue)
 !-------------------------------------------------------------------
   END SUBROUTINE SimListAddAndOutputConstReal
