@@ -116,7 +116,7 @@ CONTAINS
 
     LOGICAL :: BandwidthOptimize, Found, Coarsening, GlobalBubbles, &
         MeshNumbering, DoFinalRef
-    INTEGER :: MaxDepth, MinDepth, NLen
+    INTEGER :: MaxDepth, MinDepth, NLen, MeshDim
     CHARACTER(:), ALLOCATABLE :: Path, VarName
     REAL(KIND=dp), POINTER  :: Time(:), NodalError(:), PrevValues(:), &
          Hvalue(:), HValue1(:), PrevNodalError(:), PrevHValue(:), hConvergence(:), ptr(:), tt(:)
@@ -124,6 +124,9 @@ CONTAINS
     LOGICAL :: NoInterp, Parallel, AdaptiveOutput, AdaptInit
     TYPE(ValueList_t), POINTER :: Params
     CHARACTER(*), PARAMETER :: Caller = 'RefineMesh'
+    REAL(KIND=dp), POINTER :: Wrk(:,:)
+    REAL(KIND=dp) :: CoordScale(3)
+
 
     
     SAVE DoFinalRef
@@ -1285,6 +1288,7 @@ CONTAINS
     REAL(KIND=dp), POINTER :: HValueF(:)
     CHARACTER(:), ALLOCATABLE :: MeshCommand, Name, MeshInputFile
     LOGICAL :: GmshFormat
+    LOGICAL :: GmshPosFormat
 !------------------------------------------------------------------------------
 
     dim = CoordinateSystemDimension()
@@ -1329,23 +1333,63 @@ CONTAINS
     GmshFormat = ListGetLogical( Params,'Adaptive Remesh Use Gmsh', Found )
 
     IF( GmshFormat ) THEN
-      CALL Info( Caller,'Saving background mesh density in gmsh 2.0 (.msh) format' )
 
-      ! A cludge to change the pointer and save results in Gmsh format.
-      BLOCK
-        REAL(KIND=dp), POINTER :: PtoHvalue(:)
-        TYPE(Variable_t), POINTER :: HVar
-        HVar => VariableGet( RefMesh % Variables,'Hvalue')
-        pToHvalue => HVar % Values
-        HVar % Values => HvalueF        
-        CALL ListAddString(Solver % Values,'Scalar Field 1','Hvalue')
-        CALL ListAddLogical(Solver % Values,'File Append',.FALSE.)
-        CALL ListAddLogical(Solver % Values,'Alter Topology',.TRUE.) 
-        CALL ListAddNewString(Solver % Values, 'Output File Name', 'gmsh_bgmesh.msh')        
-        CALL SaveGmshOutput( Model,Solver,0.0_dp,.FALSE.)
-        HVar % Values => PtoHvalue
-      END BLOCK
+      GmshPosFormat = ListGetLogical( Params,'Adaptive Remesh Gmsh Use Pos Format', Found )
+      ! write the bacground mesh in .pos format if user requested it.
+      IF( GmshPosFormat) THEN
+      
+        ! Get the coordinate scaling. This is used to scale the background mesh coordinates according to the original mesh.
+        MeshDim = RefMesh % MaxDim
 
+        Wrk => ListGetConstRealArray( Model % Simulation,'Coordinate Scaling',Found )
+        CoordScale = 1.0_dp    
+        IF( Found ) THEN            
+        DO i=1, MeshDim
+          j = MIN( i, SIZE(Wrk,1) )
+          CoordScale(i) = Wrk(j,1)
+        END DO
+        WRITE(Message,'(A,3ES10.3)') 'Scaling the background mesh coordinates:',CoordScale(1:3)
+        CALL Info(Caller ,Message, Level=10)
+        END IF 
+        
+        ! write the bacground mesh in .pos format
+        CALL Info( Caller,'Saving background mesh density in gmsh .pos format' )
+        OPEN( 11, STATUS='UNKNOWN',FILE='gmsh_bgmesh.pos' )
+        WRITE( 11,* ) 'View "mesh size field" {'           
+        DO i=1,RefMesh % NumberOfNodes
+          IF(.NOT. (HValueF(i) > 0.0_dp )) CYCLE
+          IF (dim == 2 ) THEN
+            WRITE( 11,* ) 'SP(', (RefMesh % Nodes % x(i)) / CoordScale(1), &
+                        ', ', (RefMesh % Nodes % y(i)) / CoordScale(2), ') {', &
+                        HValueF(i) / MIN(CoordScale(1), CoordScale(2)), '};'
+          ELSE
+            WRITE( 11,* ) 'SP(', (RefMesh % Nodes % x(i)) / CoordScale(1), &
+                        ', ', (RefMesh % Nodes % y(i)) / CoordScale(2), &
+                        ', ', (RefMesh % Nodes % z(i)) / CoordScale(3), ') {', &
+                        HValueF(i) / MIN(CoordScale(1), MIN(CoordScale(2), CoordScale(3))), '};'
+          END IF
+        END DO
+        WRITE( 11,* ) '};'
+        CLOSE(11)
+      ELSE
+
+        CALL Info( Caller,'Saving background mesh density in gmsh 2.0 (.msh) format' )
+
+        ! A cludge to change the pointer and save results in Gmsh format.
+        BLOCK
+          REAL(KIND=dp), POINTER :: PtoHvalue(:)
+          TYPE(Variable_t), POINTER :: HVar
+          HVar => VariableGet( RefMesh % Variables,'Hvalue')
+          pToHvalue => HVar % Values
+          HVar % Values => HvalueF        
+          CALL ListAddString(Solver % Values,'Scalar Field 1','Hvalue')
+          CALL ListAddLogical(Solver % Values,'File Append',.FALSE.)
+          CALL ListAddLogical(Solver % Values,'Alter Topology',.TRUE.) 
+          CALL ListAddNewString(Solver % Values, 'Output File Name', 'gmsh_bgmesh.msh')        
+          CALL SaveGmshOutput( Model,Solver,0.0_dp,.FALSE.)
+          HVar % Values => PtoHvalue
+        END BLOCK
+      END IF
     ELSE      
       CALL Info( Caller,'Saving background mesh density in point cloud format' )
 
@@ -1405,6 +1449,8 @@ CONTAINS
     ! Check if also conversion command is given. 
     MeshCommand = ListGetString( Solver % Values,'Mesh Conversion Command',Found)
     IF( Found ) THEN
+      ! add the output path to the command. 
+      MeshCommand = MeshCommand // ' -out ' // TRIM(Path)
       CALL Info('ReMesh','Conversion command: '//TRIM(MeshCommand),Level=10)
       CALL SystemCommand( MeshCommand )
     END IF    
