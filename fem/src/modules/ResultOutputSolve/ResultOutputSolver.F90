@@ -32,6 +32,7 @@ SUBROUTINE ResultOutputSolver( Model,Solver,dt,TransientSimulation )
 !------------------------------------------------------------------------------
 
   USE DefUtils
+  USE SaveUtils
   USE AscBinOutputUtils
   
   IMPLICIT NONE
