@@ -18635,6 +18635,8 @@ CONTAINS
             l = MODULO(Mesh_in % Elements(j) % GElementIndex-1,gelements)+1 + (ilev+i) * gelements 
           END IF
           Element % GElementIndex = l
+        ELSE
+          Element % GElementIndex = cnt
         END IF
           
         Element % ElementIndex = cnt
@@ -18692,7 +18694,7 @@ CONTAINS
         ELSE
           CALL Fatal(Caller,'Cannot extrude boundary element: '//I2S(ElemCode))
         END IF
-        Mesh_out % Elements(cnt) % ElementIndex = cnt
+        Element % ElementIndex = cnt
       END DO
     END DO
 
@@ -19531,7 +19533,8 @@ CONTAINS
     INTEGER, ALLOCATABLE :: NodeHits(:), TypeHits(:)
     TYPE(Element_t), POINTER :: Element
     REAL(KIND=dp) :: mins, maxs, s, s2
-    INTEGER :: Dbg(10)
+    INTEGER(KIND=8) :: Dbg(10)
+    LOGICAL :: Halt
     CHARACTER(*), PARAMETER :: Caller="CheckMeshInfo"   
 !------------------------------------------------------------------------------
 
@@ -19540,6 +19543,7 @@ CONTAINS
     na = Mesh % NumberOfBulkElements
     nb = Mesh % NumberOfBoundaryElements
     nn = Mesh % NumberOfNodes
+    Halt = .FALSE.
     
     CALL Info(Caller,'Number of bulk elements: '//I2S(na))
     CALL Info(Caller,'Number of boundary elements: '//I2S(nb))
@@ -19554,8 +19558,8 @@ CONTAINS
     CALL CheckMeshGeomSize()
     CALL CheckMeshSerendipity()
     CALL CheckMeshBodyRadius()
-    CALL CheckMeshEdges()
     CALL CheckMeshFaces()
+    CALL CheckMeshEdges()
     CALL CheckParallelInfo()
     CALL CheckParallelEdgeInfo()
     CALL CheckParallelFaceInfo()
@@ -19563,6 +19567,8 @@ CONTAINS
     nn = ParallelReduction(nn)
     
     CALL Info(Caller,'Finished checking mesh!')
+
+    IF(Halt) CALL Fatal(Caller,'Some checksum was invalid, cannot continue!')
 
 
   CONTAINS
@@ -19587,6 +19593,10 @@ CONTAINS
         IF(ANY(Element % NodeIndexes > nn ) ) THEN
           PRINT *,'NodeIndexes:', Element % NodeIndexes, ' vs. ', nn 
           CALL Fatal(Caller,'Bulk element '//I2S(t)//' has too large index!')
+        END IF
+        IF(ANY(Element % NodeIndexes <= 0)) THEN
+          PRINT *,'NodeIndexes:',Element % NodeIndexes
+          CALL Fatal(Caller,'Non-positive node index encountered')
         END IF
         NodeHits(Element % NodeIndexes) = NodeHits(Element % NodeIndexes) + 1
       END DO
@@ -19613,6 +19623,8 @@ CONTAINS
       Dbg(5) = COUNT(TypeHits>0)
       WRITE(Message,*) 'Bulk Checksum: ',Dbg(1:5)
       CALL Info(Caller,Message)      
+      
+      IF(ANY(Dbg < 0) ) Halt = .TRUE.
       
     END SUBROUTINE CheckMeshBulkHits
 
@@ -19669,6 +19681,8 @@ CONTAINS
       WRITE(Message,*) 'Boundary Checksum: ',Dbg(1:5)
       CALL Info(Caller,Message)      
      
+      IF(ANY(Dbg < 0) ) Halt = .TRUE.
+      
     END SUBROUTINE CheckMeshBoundaryHits
 
 
@@ -19722,6 +19736,8 @@ CONTAINS
 
       IF(Misses > 0) CALL Fatal(Caller,'We need all parent indeces!')
 
+      IF(ANY(Dbg < 0) ) Halt = .TRUE.
+      
     END SUBROUTINE CheckParentIndeces
 
     
@@ -19875,6 +19891,7 @@ CONTAINS
 
     SUBROUTINE CheckMeshEdges()
       INTEGER, POINTER :: Indexes(:)
+      INTEGER :: m
 
       IF(Mesh % NumberOfEdges == 0 ) RETURN      
       dbg = 0
@@ -19882,8 +19899,22 @@ CONTAINS
 
       DO t=1,Mesh % NumberOfEdges
         Element => Mesh % Edges(t)
+        IF(.NOT. ASSOCIATED(Element)) THEN
+          CALL Fatal(Caller,'Edge not associated on edge list: '//I2S(t))
+        END IF
         Indexes => Element % NodeIndexes          
-        dbg(2) = dbg(2) + SUM(Indexes)        
+        IF(.NOT. ASSOCIATED(Indexes)) THEN
+          CALL Fatal(Caller,'NodeIndexes not associated on edge: '//I2S(t))
+        END IF
+        IF(.NOT. ASSOCIATED(Element % TYPE)) THEN
+          CALL Fatal(Caller,'Edge type '//I2S(t)//' not associated!')
+        END IF
+        m = Element % Type % NumberOfNodes
+        IF(SIZE(Indexes) /= m) THEN
+          CALL Fatal(Caller,'Invalid size of edge '//I2S(t)//&
+              ' NodeIndexes: '//I2S(SIZE(Indexes))//' vs. '//I2S(m))
+        END IF
+        IF(SIZE(Indexes)>0) dbg(2) = dbg(2) + SUM(Indexes)
         dbg(3) = dbg(3) + Element % ElementIndex
         dbg(4) = dbg(4) + Element % GElementIndex        
       END DO
@@ -19891,10 +19922,13 @@ CONTAINS
       WRITE(Message,*) 'Edges Checksum: ',Dbg(1:5)
       CALL Info(Caller,Message)                  
 
+      IF(ANY(Dbg < 0) ) Halt = .TRUE.
+
     END SUBROUTINE CheckMeshEdges
 
     SUBROUTINE CheckMeshFaces()
       INTEGER, POINTER :: Indexes(:)
+      INTEGER :: m
 
       IF(Mesh % NumberOfFaces == 0 ) RETURN      
       dbg = 0
@@ -19902,15 +19936,32 @@ CONTAINS
 
       DO t=1,Mesh % NumberOfFaces
         Element => Mesh % Faces(t)
+        IF(.NOT. ASSOCIATED(Element)) THEN
+          CALL Fatal(Caller,'Face not associated on face list: '//I2S(t))
+        END IF
         Indexes => Element % NodeIndexes          
-        dbg(2) = dbg(2) + SUM(Indexes)        
+        IF(.NOT. ASSOCIATED(Indexes)) THEN
+          CALL Fatal(Caller,'NodeIndexes not associated on face: '//I2S(t))
+        END IF
+        IF(.NOT. ASSOCIATED(Element % TYPE)) THEN
+          CALL Fatal(Caller,'Face type '//I2S(t)//' not associated!')
+        END IF
+        m = Element % TYPE % NumberOfNodes
+        IF(SIZE(Indexes) /= m) THEN
+          CALL Fatal(Caller,'Invalid size of face '//I2S(t)//&
+              ' NodeIndexes: '//I2S(SIZE(Indexes))//' vs. '//I2S(m))
+        END IF
+        IF(SIZE(Indexes)>0) dbg(2) = dbg(2) + SUM(Indexes)
         dbg(3) = dbg(3) + Element % ElementIndex
         dbg(4) = dbg(4) + Element % GElementIndex        
+
       END DO
 
       WRITE(Message,*) 'Faces Checksum: ',Dbg(1:5)
       CALL Info(Caller,Message)                  
 
+      IF(ANY(Dbg < 0) ) Halt = .TRUE.
+      
     END SUBROUTINE CheckMeshFaces
 
 
@@ -19941,6 +19992,8 @@ CONTAINS
       WRITE(Message,*) 'ParallelInfo Checksum: ',Dbg(1:7)
       CALL Info(Caller,Message)                         
 
+      IF(ANY(Dbg < 0) ) Halt = .TRUE.
+      
      END SUBROUTINE CheckParallelInfo
        
     SUBROUTINE CheckParallelEdgeInfo()
@@ -19976,6 +20029,8 @@ CONTAINS
       WRITE(Message,*) 'ParallelEdges Checksum: ',Dbg(1:7)
       CALL Info(Caller,Message)                         
       
+      IF(ANY(Dbg < 0) ) Halt = .TRUE.
+      
     END SUBROUTINE CheckParallelEdgeInfo
 
     SUBROUTINE CheckParallelFaceInfo()
@@ -20010,6 +20065,8 @@ CONTAINS
 
       WRITE(Message,*) 'ParallelFaces Checksum: ',Dbg(1:7)
       CALL Info(Caller,Message)                         
+      
+      IF(ANY(Dbg < 0) ) Halt = .TRUE.
       
     END SUBROUTINE CheckParallelFaceInfo
            

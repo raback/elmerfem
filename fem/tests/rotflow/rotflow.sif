@@ -66,7 +66,7 @@ Solver 1
   Linear System Ilut Tolerance = 0.0001
   Linear System Residual Output = 1
 
-  Stabilization Method = PBubbles
+  Stabilization Method = Bubbles
 ! Bubbles in Global System = False
 
   Nonlinear System Convergence Tolerance = 1e-8
