@@ -433,9 +433,12 @@
      ELSE
        IF (StabilizeFlag == 'p2/p1' .OR. StabilizeFlag == 'p2p1') THEN
          P2P1 = .TRUE.
-         Stabilize = .FALSE.         
        ELSE IF( StabilizeFlag == 'bubbles' ) THEN
          Bubbles = .TRUE.
+       ELSE IF(StabilizeFlag == 'stabilized' ) THEN
+         Stabilize = .TRUE.
+       ELSE
+          CALL Fatal('FlowSolver','Unknown "stabilization method": '//TRIM(StabilizeFlag))
        END IF
      END IF     
      
@@ -1031,11 +1034,14 @@
 
          IF ( CompressibilityModel /= Incompressible .AND. &
                  StabilizeFlag == 'stabilized' ) THEN
-            nb = n
+            Bubbles = .TRUE.
+            StabilizeFlag = 'bubbles'
          END IF
          IF ( Element % TYPE % BasisFunctionDegree <= 1 .AND. P2P1 ) THEN
-            nb = n
+            Bubbles = .TRUE.
+            StabilizeFlag = 'bubbles'
          END IF
+         IF ( nb==0 .AND. Bubbles ) nb = n
            
 !------------------------------------------------------------------------------
 !        If time dependent simulation, add mass matrix to global 
