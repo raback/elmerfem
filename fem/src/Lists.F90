@@ -8700,8 +8700,11 @@ CONTAINS
      
      Val3D = 0.0_dp
 
-     IF( .NOT. ASSOCIATED( Handle % Variable ) ) RETURN
-     
+     IF( .NOT. ASSOCIATED( Handle % Variable ) ) THEN
+       IF(PRESENT(Found)) Found = .FALSE.
+       RETURN
+     END IF
+       
      IF( PRESENT( dofs ) ) THEN
        Ldofs = dofs
      ELSE

@@ -157,6 +157,29 @@ CONTAINS
   END SUBROUTINE GetWPotential
 !------------------------------------------------------------------------------
 
+
+!------------------------------------------------------------------------------
+  SUBROUTINE GetWPotentialVar(pVar)
+!------------------------------------------------------------------------------
+    IMPLICIT NONE
+
+    TYPE(Variable_t), POINTER :: pVar
+
+    pVar => VariableGet( CurrentModel % Mesh % Variables,'W Potential')
+    IF(.NOT. ASSOCIATED(pVar) ) THEN
+      pVar => VariableGet( CurrentModel % Mesh % Variables,'W')
+    END IF
+    IF(ASSOCIATED(pVar)) THEN
+      CALL Info('GetWPotentialVar','Using gradient of field to define direction: '&
+          //TRIM(pVar % Name),Level=7)
+    ELSE
+      CALL Warn('GetWPotentialVar','Could not obtain variable for potential "W"')
+    END IF
+!------------------------------------------------------------------------------
+  END SUBROUTINE GetWPotentialVar
+!------------------------------------------------------------------------------
+
+  
 !------------------------------------------------------------------------------
   SUBROUTINE AddComponentsToBodyLists()
 !------------------------------------------------------------------------------
