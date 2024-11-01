@@ -696,12 +696,12 @@
           IF(.NOT. Stat ) str = "umfpack"                    
 #if !defined (HAVE_UMFPACK) && defined (HAVE_MUMPS)
           IF( str == "umfpack" ) THEN
-            CALL Warn( 'CircuitPrec', 'UMFPACK solver not installed, using MUMPS instead!' )
+            CALL Warn( 'CircuitPrec', 'Umfpack solver not installed, using MUMPS instead!' )
             str = "mumps"
           END IF
 #elseif !defined (HAVE_MUMPS) && defined(HAVE_UMFPACK)
           IF( str == "mumps" ) THEN
-            CALL Warn( 'CircuitPrec', 'UMFPACK solver not installed, using MUMPS instead!' )
+            CALL Warn( 'CircuitPrec', 'MUMPS solver not installed, using Umfpack instead!' )
             str = "umfpack"
           END IF
 #elseif !defined (HAVE_MUMPS) && !defined(HAVE_UMFPACK)
@@ -765,12 +765,12 @@
           IF(.NOT. Stat ) str = "umfpack"                    
 #if !defined (HAVE_UMFPACK) && defined (HAVE_MUMPS)
           IF( str == "umfpack" ) THEN
-            CALL Warn( 'CircuitPrecComplex', 'UMFPACK solver not installed, using MUMPS instead!' )
+            CALL Warn( 'CircuitPrecComplex', 'Umfpack solver not installed, using MUMPS instead!' )
             str = "mumps"
           END IF
 #elseif !defined (HAVE_MUMPS) && defined(HAVE_UMFPACK)
           IF( str == "mumps" ) THEN
-            CALL Warn( 'CircuitPrecComplex', 'UMFPACK solver not installed, using MUMPS instead!' )
+            CALL Warn( 'CircuitPrecComplex', 'MUMPS solver not installed, using Umfpack instead!' )
             str = "umfpack"
           END IF
 #elseif !defined (HAVE_MUMPS) && !defined(HAVE_UMFPACK)
