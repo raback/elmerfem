@@ -719,7 +719,7 @@ END FUNCTION isComponentName
        END DO
      END IF
 
-     IF( InfoActive(20) ) THEN
+     IF( InfoActive(25) ) THEN
        DO i=1,nBC
          PRINT *,'A(i)',i,i<=CurrentModel % NumberOfBCs,BoundaryAreas(i)
        END DO

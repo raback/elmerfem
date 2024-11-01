@@ -14821,6 +14821,7 @@ END FUNCTION SearchNodeL
       Prec = ListGetString(Params,'Linear System Preconditioning',GotIt)
       IF( GotIt ) THEN
         CALL Info(Caller,'Linear System Preconditioning: '//TRIM(Prec),Level=8)
+        CALL ResetTimer("Prec0-"//TRIM(Prec))
         IF( SEQL(Prec,'vanka') ) THEN
           IF(LEN(Prec)>=6) THEN
             i = ICHAR(Prec(6:6)) - ICHAR('0')
@@ -14828,7 +14829,10 @@ END FUNCTION SearchNodeL
           END IF
           CALL VankaCreate(A,Solver)
         END IF
-        IF ( Prec=='circuit' ) CALL CircuitPrecCreate(A,Solver)
+        IF ( Prec=='circuit' ) THEN
+          CALL CircuitPrecCreate(A,Solver)
+        END IF
+        CALL CheckTimer("Prec0-"//TRIM(Prec),Level=8,Delete=.TRUE.)                  
       END IF
     END IF
 
