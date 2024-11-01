@@ -530,6 +530,10 @@ SUBROUTINE NodeToEdgeField(Model, Solver, dt, Transient)
       CALL VectorValuesRange(EdgeVar % Values,SIZE(EdgeVar % Values),TRIM(EdgeVar % Name))       
     END IF
   END IF
+
+  ! We should be visiting this routine only once!
+  CALL Info(Caller,'Freeing unneeded matrix structures',Level=10)
+  CALL FreeMatrix(Solver % Matrix)
   
   CALL Info(Caller,'Finished projection to edge basis!')
 

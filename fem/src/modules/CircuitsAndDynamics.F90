@@ -355,13 +355,15 @@ CONTAINS
         
       RowId = Cvar % ValueId + nm
       
-      vphi = GetCReal(Params, Circuit % Source(i), Found)
-      IF ( .NOT. Found .AND. ASSOCIATED(BF) ) THEN
-        vphi = GetCReal(BF, Circuit % Source(i), Found)
+      IF( LEN_TRIM( Circuit % Source(i) ) > 0 ) THEN
+        vphi = GetCReal(Params, Circuit % Source(i), Found)
+        IF ( .NOT. Found .AND. ASSOCIATED(BF) ) THEN
+          vphi = GetCReal(BF, Circuit % Source(i), Found)
+        END IF
+        IF (Found) Cvar % SourceRe(i) = vphi
+      ELSE
+        vphi = 0.0_dp
       END IF
-      IF (Found) Cvar % SourceRe(i) = vphi
-
-      !IF(Found) PRINT *,'vphi',i,vphi,TRIM(Circuit % Source(i))
       
       Cvar % SourceRe(i) = vphi
       CM % RHS(RowId) = Cvar % SourceRe(i)
