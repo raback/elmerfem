@@ -2970,7 +2970,10 @@ CONTAINS
    CALL NonNodalElements()
 
    IF( Parallel ) THEN
+     CALL Info(Caller,'Generating parallel communications for the non-nodal mesh',Level=20)
+     CALL ResetTimer('ParallelNonNodal')
      CALL ParallelNonNodalElements()
+     CALL CheckTimer('ParallelNonNodal',Level=7,Delete=.TRUE.)
    END IF
      
    CALL EnlargeCoordinates( Mesh ) 
