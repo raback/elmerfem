@@ -284,7 +284,7 @@
 
      CASE(0)
 
-       ! Pick entries related to ene single element and inverse the matrix.
+       ! Pick entries related to a single element and inverse the matrix.
        ! Add the inverse to the preconditioning matrix.
        !-------------------------------------------------------------------
        Active = GetNOFActive(Solver)
@@ -444,13 +444,13 @@
          Mesh => Solver % Mesh
          IF( Mesh % MeshDim == 3 ) THEN
            IF(.NOT. ASSOCIATED(Mesh % Faces)) THEN
-             CALL Warn('VankaCreate','This mode requires existance of Faces in 3D!')
+             CALL Warn('VankaCreate','This mode requires existence of Faces in 3D!')
              CALL FindMeshFaces3D(Mesh)
            END IF
            NoElems = Mesh % NumberOfFaces
          ELSE
            IF(.NOT. ASSOCIATED(Mesh % Edges)) THEN
-             CALL Warn('VankaCreate','This mode requires existance of Edges in 2D!')
+             CALL Warn('VankaCreate','This mode requires existence of Edges in 2D!')
              CALL FindMeshEdges2D(Mesh)
            END IF
            
@@ -604,7 +604,7 @@
        A % ILUCols => B % Cols
        A % ILURows => B % Rows
        
-       ! Nullify these so that they wont be destroyed
+       ! Nullify these so that they won't be destroyed
        NULLIFY( B % Values, B % Cols, B % Rows)
        CALL FreeMatrix( B )               
      END IF

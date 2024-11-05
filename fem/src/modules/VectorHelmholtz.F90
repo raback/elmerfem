@@ -1008,7 +1008,7 @@ CONTAINS
           DO p=1,nd
             L(:) = L(:) + CMPLX(Re_Eigenf(n+p) * WBasis(p,:), Im_Eigenf(n+p) * WBasis(p,:), kind=dp) 
           END DO
-          L = 2 * B * L
+          L = 2.0_dp * B * L
         END IF
       ELSE
         MagLoad = ListGetElementComplex3D( MagLoad_h, Basis, Element, Found, GaussPoint = t )           
