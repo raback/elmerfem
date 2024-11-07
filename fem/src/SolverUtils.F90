@@ -18632,59 +18632,58 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, &
 !------------------------------------------------------------------------------
 
   ExportMultiplier = ListGetLogical(Params, 'Export Lagrange Multiplier', Found )
-  IF(.NOT. Found) ExportMultiplier = .TRUE.
   IF ( ExportMultiplier ) THEN
-     MultiplierName = LagrangeMultiplierName( Solver )
-     MultVar => VariableGet(Solver % Mesh % Variables, MultiplierName)
-     j = 0
-     IF(ASSOCIATED(RestMatrix)) j = RestMatrix % NumberofRows
-     IF(ASSOCIATED(AddMatrix))  j = j+MAX(0,AddMatrix % NumberofRows-StiffMatrix % NumberOfRows)
+    MultiplierName = LagrangeMultiplierName( Solver )
+    MultVar => VariableGet(Solver % Mesh % Variables, MultiplierName)
+    j = 0
+    IF(ASSOCIATED(RestMatrix)) j = RestMatrix % NumberofRows
+    IF(ASSOCIATED(AddMatrix))  j = j+MAX(0,AddMatrix % NumberofRows-StiffMatrix % NumberOfRows)
 
-     IF ( .NOT. ASSOCIATED(MultVar) ) THEN
-       CALL Info(Caller,'Creating variable for Lagrange multiplier',Level=8)
-       ALLOCATE( MultiplierValues(j), STAT=istat )
-       IF ( istat /= 0 ) CALL Fatal(Caller,'Memory allocation error.')
+    IF ( .NOT. ASSOCIATED(MultVar) ) THEN
+      CALL Info(Caller,'Creating variable for Lagrange multiplier',Level=8)
+      ALLOCATE( MultiplierValues(j), STAT=istat )
+      IF ( istat /= 0 ) CALL Fatal(Caller,'Memory allocation error.')
 
-       MultiplierValues = 0.0_dp
-       IF( ComplexSystem ) THEN
-         CALL VariableAddVector(Solver % Mesh % Variables, Solver % Mesh, SolverPointer, &
-             MultiplierName, 2, MultiplierValues)               
-       ELSE
-         CALL VariableAdd(Solver % Mesh % Variables, Solver % Mesh, SolverPointer, &
-             MultiplierName, 1, MultiplierValues)      
-       END IF
-       MultVar => VariableGet(Solver % Mesh % Variables, MultiplierName)
-     END IF
+      MultiplierValues = 0.0_dp
+      IF( ComplexSystem ) THEN
+        CALL VariableAddVector(Solver % Mesh % Variables, Solver % Mesh, SolverPointer, &
+            MultiplierName, 2, MultiplierValues)               
+      ELSE
+        CALL VariableAdd(Solver % Mesh % Variables, Solver % Mesh, SolverPointer, &
+            MultiplierName, 1, MultiplierValues)      
+      END IF
+      MultVar => VariableGet(Solver % Mesh % Variables, MultiplierName)
+    END IF
 
-     IF( InfoActive( 20 ) ) THEN
-       CALL VectorValuesRange(MultVar % Values,SIZE(MultVar % Values),TRIM(MultVar % Name))
-     END IF
-          
-     MultiplierValues => MultVar % Values
+    IF( InfoActive( 20 ) ) THEN
+      CALL VectorValuesRange(MultVar % Values,SIZE(MultVar % Values),TRIM(MultVar % Name))
+    END IF
 
-     IF (j > SIZE(MultiplierValues)) THEN
-       CALL Info(Caller,'Increasing Lagrange multiplier size to: '//I2S(j),Level=8)
-       ALLOCATE(MultiplierValues(j)); MultiplierValues=0._dp       
-       MultiplierValues(1:SIZE(MultVar % Values)) = MultVar % Values     
+    MultiplierValues => MultVar % Values
 
-       ! If the Lagrange variable includes history also change its size.
-       IF( ASSOCIATED( MultVar % PrevValues ) ) THEN
-         MultVar % Values = MultVar % PrevValues(:,1)
-         DEALLOCATE( MultVar % PrevValues )
-         ALLOCATE( MultVar % PrevValues(j,1) )
-         MultVar % PrevValues = 0.0_dp
-         MultVar % PrevValues(:,1) = MultVar % Values
-       END IF
+    IF (j > SIZE(MultiplierValues)) THEN
+      CALL Info(Caller,'Increasing Lagrange multiplier size to: '//I2S(j),Level=8)
+      ALLOCATE(MultiplierValues(j)); MultiplierValues=0._dp       
+      MultiplierValues(1:SIZE(MultVar % Values)) = MultVar % Values     
 
-       DEALLOCATE(MultVar % Values)
-       MultVar % Values => MultiplierValues
-     END IF
+      ! If the Lagrange variable includes history also change its size.
+      IF( ASSOCIATED( MultVar % PrevValues ) ) THEN
+        MultVar % Values = MultVar % PrevValues(:,1)
+        DEALLOCATE( MultVar % PrevValues )
+        ALLOCATE( MultVar % PrevValues(j,1) )
+        MultVar % PrevValues = 0.0_dp
+        MultVar % PrevValues(:,1) = MultVar % Values
+      END IF
 
-     IF( InfoActive(25) ) THEN
-       CALL VectorValuesRange(MultVar % values,SIZE(MultVar % values),'MultVar')
-     END IF
+      DEALLOCATE(MultVar % Values)
+      MultVar % Values => MultiplierValues
+    END IF
+
+    IF( InfoActive(25) ) THEN
+      CALL VectorValuesRange(MultVar % values,SIZE(MultVar % values),'MultVar')
+    END IF
   ELSE
-     MultiplierValues => NULL()
+    MultiplierValues => NULL()
   END IF
 
   UseTreeGauge = ListGetlogical(Params, 'Use Tree Gauge', Found )
@@ -19242,9 +19241,10 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, &
   END IF
 
   CALL Info(Caller,'Reverting CollectionMatrix back to CRS matrix',Level=10)
-  IF(CollectionMatrix % FORMAT==MATRIX_LIST) &
-      CALL List_toCRSMatrix(CollectionMatrix)
-
+  IF(CollectionMatrix % FORMAT==MATRIX_LIST) THEN
+    CALL List_toCRSMatrix(CollectionMatrix)
+  END IF
+    
   ! CRS-format matrix needed here
   IF ( NeedMassDampValues ) THEN  ! Doesn't work with constraints, "AddMatrix" only !!
     CALL CopyMassDampValues(CollectionMatrix, StiffMatrix, AddMatrix)
