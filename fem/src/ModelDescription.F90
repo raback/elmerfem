@@ -553,6 +553,18 @@ CONTAINS
       ELSE IF ( Section == 'run' ) THEN
          IF ( PRESENT(runc) ) runc=.TRUE.
          EXIT
+      ELSE IF ( Section == 'stop' ) THEN
+        CALL Warn(Caller,'Encountered "STOP" in sif, rest will be ignored!')
+        EXIT
+      ELSE IF( Section == '/*' ) THEN
+        CALL Info(Caller,'Starting comment section!')
+        DO WHILE( ReadAndTrim( InFileUnit, Section, Echo ) )
+          IF ( Section == '*/' ) THEN
+            CALL Info(Caller,'Finished comment section!')
+            EXIT                      
+          END IF
+        END DO
+        CYCLE        
       END IF
 
       FreeNames = ( CheckAbort <= 0 )

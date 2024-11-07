@@ -61,8 +61,8 @@ Solver 1
   Exec Solver = Always
   Nonlinear System Max Iterations = 1
 
-  Linear System Solver = Direct !Iterative
-  Linear System Direct Method = MUMPS
+  Linear System Solver = Direct 
+  Linear System Direct Method = umfpack
 
   Linear System Scaling = False
   Optimize Bandwidth = False
