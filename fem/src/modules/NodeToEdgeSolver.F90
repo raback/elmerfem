@@ -532,8 +532,8 @@ SUBROUTINE NodeToEdgeField(Model, Solver, dt, Transient)
   END IF
 
   ! We should be visiting this routine only once!
-  CALL Info(Caller,'Freeing unneeded matrix structures',Level=10)
-  CALL FreeMatrix(Solver % Matrix)
+! CALL Info(Caller,'Freeing unneeded matrix structures',Level=10)
+! CALL FreeMatrix(Solver % Matrix)
   
   CALL Info(Caller,'Finished projection to edge basis!')
 
