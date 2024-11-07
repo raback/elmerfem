@@ -1939,9 +1939,6 @@ CONTAINS
        CALL Fatal(Caller,'Invalid number of dofs for contact problem: '//I2S(dofs))
      END IF     
 
-PRINT *,'************ codfs:',cdofs,dofs,dim
-
-     
      pContact = IsPelement(Mesh % Elements(1) )
      IF( ListGetLogical( Params,'Contact Linear Basis',Found ) ) THEN
        pContact = .FALSE.
@@ -2573,8 +2570,6 @@ PRINT *,'************ codfs:',cdofs,dofs,dim
        onesize = Projector % NumberOfRows
        totsize = cDofs * onesize
 
-PRINT *,'totsize:',totsize,onesize,cdofs
-       
        IF( .NOT. AddDiag .AND. ASSOCIATED(MortarBC % Diag) ) THEN
          DEALLOCATE( MortarBC % Diag ) 
        END IF
