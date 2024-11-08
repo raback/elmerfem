@@ -23893,13 +23893,17 @@ CONTAINS
        IF(dofs==dim .OR. dofs == 1) THEN
          cdofs = dofs
        ELSE IF(dofs==dim+1) THEN
-         cdofs = dim
+         ! For contact mechanics we want to ignore the pressure. 
+         IF( ListGetLogical( Solver % Values,'Apply Contact BCs',Found ) ) THEN
+           cdofs = dim
+         ELSE
+           cdofs = dofs
+         END IF
        ELSE
          CALL Fatal(Caller,'Invalid number of dofs for field: '//I2S(dofs))
        END IF
      END IF
-
-
+     
      ALLOCATE( ActiveComponents(dofs), SetDefined(dofs), rsum(dofs) ) 
      
      IF( SumProjectors ) THEN
@@ -23908,9 +23912,7 @@ CONTAINS
        ALLOCATE( SumCount( arows ) )
        SumCount = 0
      END IF
-     
-
-     
+          
      AnyPriority = ListCheckPresentAnyBC( Model,'Projector Priority') 
      IF( AnyPriority ) THEN
        IF(.NOT. SumProjectors ) THEN
@@ -24043,9 +24045,9 @@ CONTAINS
          
          ! By default all components are applied mortar BC and some are turned off.
          ! If the user does the opposite then the default for other components is True.
-         IF( SomeSet .AND. .NOT. ALL(SetDefined) ) THEN
+         IF( SomeSet .AND. .NOT. ALL(SetDefined(1:cdofs)) ) THEN
            IF( SomeSkip ) THEN
-             CALL Fatal(Caller,'Do not know what to do with all components')
+             CALL Fatal(Caller,'Do not know what to do with all '//I2S(cdofs)//' components')
            ELSE
              CALL Info(Caller,'Unspecified components will not be set for BC '//I2S(bc_ind),Level=10)
              DO i=1,cDofs
