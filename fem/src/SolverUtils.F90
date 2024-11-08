@@ -1875,7 +1875,7 @@ CONTAINS
          WeightVar, NormalActiveVar, StickActiveVar, GapVar, ContactLagrangeVar
      TYPE(Element_t), POINTER :: Element
      TYPE(Mesh_t), POINTER :: Mesh
-     INTEGER :: i,j,k,l,n,m,t,ind,dofs, bf, Upper, &
+     INTEGER :: i,j,k,l,n,m,t,ind,dofs,cdofs,dim, bf, Upper, &
          ElemFirst, ElemLast, totsize, i2, j2, ind2, bc_ind, master_ind, &
          DistSign, LimitSign, DofN, DofT1, DofT2, Limited, LimitedMin, TimeStep
      REAL(KIND=dp), POINTER :: FieldValues(:), LoadValues(:), ElemLimit(:),pNormal(:,:),&
@@ -1927,7 +1927,17 @@ CONTAINS
      FieldPerm => Var % Perm
      totsize = SIZE( FieldValues )
      dofs = Var % Dofs
+     dim = Mesh % MeshDim 
      Params => Solver % Values
+
+     IF(dofs == dim) THEN
+       cdofs = dim
+     ELSE IF(dofs == dim+1) THEN
+       CALL Info(Caller,'We seem to have mixed formulation, ignoring pressure!',Level=7)
+       cdofs = dim
+     ELSE 
+       CALL Fatal(Caller,'Invalid number of dofs for contact problem: '//I2S(dofs))
+     END IF     
 
      pContact = IsPelement(Mesh % Elements(1) )
      IF( ListGetLogical( Params,'Contact Linear Basis',Found ) ) THEN
@@ -2046,7 +2056,7 @@ CONTAINS
 
        IF( FlatProjector ) THEN
          ActiveDirection = ListGetInteger( BC, 'Flat Projector Coordinate',Found )
-         IF( .NOT. Found ) ActiveDirection = dofs       
+         IF( .NOT. Found ) ActiveDirection = cdofs       
        ELSE IF( PlaneProjector ) THEN
          pNormal => ListGetConstRealArray( BC,'Plane Projector Normal',Found)
          IF( ThisRotatedContact ) THEN
@@ -2102,7 +2112,7 @@ CONTAINS
 
        ! Get the degrees of freedom related to the normal and tangential directions
        DofT1 = 0; DofT2 = 0
-       DO i=1,dofs
+       DO i=1,cdofs
          IF( i == DofN ) CYCLE
          IF( DofT1 == 0 ) THEN
            DofT1 = i 
@@ -2321,12 +2331,12 @@ CONTAINS
          IF( m == 0 ) CYCLE
          
          RotVec = 0._dp
-         DO k=1,Var % DOFs
-           RotVec(k) = RotatedField(Var % DOfs*(j-1)+k)
+         DO k=1,cdofs
+           RotVec(k) = RotatedField(dofs*(j-1)+k)
          END DO
          CALL RotateNTSystem( RotVec, i )
-         DO k=1,Var % DOFs
-           RotatedField(Var % Dofs*(j-1)+k) = RotVec( k )
+         DO k=1,cdofs
+           RotatedField(dofs*(j-1)+k) = RotVec( k )
          END DO
        END DO
 
@@ -2365,7 +2375,7 @@ CONTAINS
          TempX => FieldValues
        END IF
 
-       CALL CalculateLoads( Solver, Solver % Matrix, TempX, Var % DOFs, .FALSE., LoadVar ) 
+       CALL CalculateLoads( Solver, Solver % Matrix, TempX, dofs, .FALSE., LoadVar ) 
 
        IF( InfoActive(30) ) THEN
          CALL VectorValuesRange(LoadVar % Values, SIZE(LoadVar % Values),'ContactLoad')
@@ -2380,7 +2390,7 @@ CONTAINS
      SUBROUTINE PickLagrangeMultiplier( ) 
 
        TYPE(Variable_t), POINTER :: LinSysVar, ContactSysVar, ActiveVar
-       INTEGER :: i,j,k,l,n,dofs
+       INTEGER :: i,j,k,l,n
        INTEGER, POINTER :: InvPerm(:)
        
        CALL Info(Caller,'Pick lagrange coefficient from the active set to whole set',Level=10)
@@ -2408,7 +2418,6 @@ CONTAINS
        
        InvPerm => Solver % Matrix % ConstraintMatrix % InvPerm
        n = Solver % Matrix % ConstraintMatrix % NumberOfRows
-       dofs = Solver % Variable % dofs
        
        DO i=1,SIZE(InvPerm)
          ! This is related to the full matrix equation
@@ -2511,7 +2520,7 @@ CONTAINS
              TRIM(VarName)//' Contact Stick',1,Perm = BoundaryPerm )
          IF( CalculateVelocity ) THEN
            CALL VariableAddVector( Model % Variables,Mesh,Solver,&
-               TRIM(VarName)//' Contact Velocity',Dofs,Perm = BoundaryPerm )
+               TRIM(VarName)//' Contact Velocity',cDofs,Perm = BoundaryPerm )
          END IF
          CALL VariableAddVector( Model % Variables,Mesh,Solver,&
              TRIM(VarName)//' Lagrange Multiplier',1,Perm = BoundaryPerm )
@@ -2559,7 +2568,7 @@ CONTAINS
        LOGICAL :: SamePerm, SameSize
        
        onesize = Projector % NumberOfRows
-       totsize = Dofs * onesize
+       totsize = cDofs * onesize
 
        IF( .NOT. AddDiag .AND. ASSOCIATED(MortarBC % Diag) ) THEN
          DEALLOCATE( MortarBC % Diag ) 
@@ -2625,8 +2634,8 @@ CONTAINS
          k = MortarBC % Perm(i)
          IF( k == 0 ) CYCLE
 
-         DO l=1,Dofs
-           Active(Dofs*(j-1)+l) = MortarBC % Active(Dofs*(k-1)+l)
+         DO l=1,cDofs
+           Active(cDofs*(j-1)+l) = MortarBC % Active(cDofs*(k-1)+l)
          END DO
        END DO
 
@@ -2687,9 +2696,9 @@ CONTAINS
              IF( j2 == 0 ) CYCLE
              k2 = MortarBC % perm( Indexes(i2) )
              
-             DO l=1,Dofs             
-               ind = Dofs * ( k - 1 ) + l
-               ind2 = Dofs * ( k2 - 1) + l
+             DO l=1,cDofs             
+               ind = cDofs * ( k - 1 ) + l
+               ind2 = cDofs * ( k2 - 1) + l
                
                IF( MortarBC % Active(ind) .NEQV. MortarBC % Active(ind2) ) THEN
                  InterfaceDof(ind) = .TRUE.
@@ -2830,11 +2839,11 @@ CONTAINS
            LocalNormal = NTT(:,1)
            LocalNormal0 = LocalNormal
            LocalT1 = NTT(:,2)
-           IF( Dofs == 3 ) LocalT2 = NTT(:,3)
+           IF( cDofs == 3 ) LocalT2 = NTT(:,3)
          ELSE
            LocalNormal = ContactNormal
            LocalT1 = ContactT1
-           IF( Dofs == 3 ) LocalT2 = ContactT2 
+           IF( cDofs == 3 ) LocalT2 = ContactT2 
          END IF
 
          ! Compute normal of the master surface from the average sum of normals
@@ -2855,13 +2864,13 @@ CONTAINS
              ! Weighted direction for the unit vectors
              LocalNormal = LocalNormal + coeff * NTT(:,1)
              LocalT1 = LocalT1 + coeff * NTT(:,2)
-             IF( Dofs == 3 ) LocalT2 = LocalT2 + coeff * NTT(:,3)
+             IF( cDofs == 3 ) LocalT2 = LocalT2 + coeff * NTT(:,3)
            END DO
 
            ! Normalize the unit vector length to one
            LocalNormal = LocalNormal / SQRT( SUM( LocalNormal**2 ) )
            LocalT1 = LocalT1 / SQRT( SUM( LocalT1**2 ) )
-           IF( Dofs == 3 ) LocalT2 = LocalT2 / SQRT( SUM( LocalT1**2 ) )
+           IF( cDofs == 3 ) LocalT2 = LocalT2 / SQRT( SUM( LocalT1**2 ) )
 
            !PRINT *,'NodalNormal:',i,j,LocalNormal0,LocalNormal
          END IF
@@ -2945,14 +2954,12 @@ CONTAINS
              IF( ThisRotatedContact ) CoeffSign = -1
            END IF
            
-           IF( dofs == 2 ) THEN
-             disp(1) = DispVals( 2 * l - 1)
-             disp(2) = DispVals( 2 * l )
+           disp(1) = DispVals( dofs * (l-1) + 1)
+           disp(2) = DispVals( dofs * (l-1) + 2 )
+           IF( cdofs == 2 ) THEN
              disp(3) = 0.0_dp
            ELSE
-             disp(1) = DispVals( 3 * l - 2)
-             disp(2) = DispVals( 3 * l - 1 )
-             disp(3) = DispVals( 3 * l )
+             disp(3) = DispVals( dofs * (l-1) + 3 )
            END IF
 
            ! If nonlinear analysis is used we may need to cancel the introduced gap due to numerical errors 
@@ -2960,11 +2967,11 @@ CONTAINS
              IF( ThisRotatedContact ) THEN
                ContactVec(1) = ContactVec(1) + coeff * SUM( LocalNormal * Disp )
                ContactVec(2) = ContactVec(2) + coeff * SUM( LocalT1 * Disp )
-               IF( Dofs == 3) ContactVec(3) = ContactVec(3) + coeff * SUM( LocalT2 * Disp )
+               IF( cDofs == 3) ContactVec(3) = ContactVec(3) + coeff * SUM( LocalT2 * Disp )
              ELSE
                ContactVec(1) = ContactVec(1) + coeff * SUM( ContactNormal * Disp )
                ContactVec(2) = ContactVec(2) + coeff * SUM( ContactT1 * Disp )
-               IF( Dofs == 3 ) ContactVec(3) = ContactVec(3) + coeff * SUM( ContactT2 * Disp ) 
+               IF( cDofs == 3 ) ContactVec(3) = ContactVec(3) + coeff * SUM( ContactT2 * Disp ) 
              END IF
              CYCLE
            END IF
@@ -2975,14 +2982,12 @@ CONTAINS
 
            PrevDisp = 0._dp
            IF( CalculateVelocity ) THEN
-             IF( dofs == 2 ) THEN
-               PrevDisp(1) = PrevDispVals( 2 * l - 1)
-               PrevDisp(2) = PrevDispVals( 2 * l )
+             PrevDisp(1) = PrevDispVals( dofs * (l-1) + 1)
+             PrevDisp(2) = PrevDispVals( dofs * (l-1) + 2 )
+             IF( cdofs == 2 ) THEN
                PrevDisp(3) = 0.0_dp
              ELSE
-               PrevDisp(1) = PrevDispVals( 3 * l - 2)
-               PrevDisp(2) = PrevDispVals( 3 * l - 1 )
-               PrevDisp(3) = PrevDispVals( 3 * l )
+               PrevDisp(3) = PrevDispVals( dofs * (l-1) + 3 )
              END IF
            END IF
 
@@ -3008,10 +3013,10 @@ CONTAINS
 
              IF( ThisRotatedContact ) THEN
                ContactVec(2) = ContactVec(2) + coeff * SUM( LocalT1 * SlipCoord )
-               IF( Dofs == 3) ContactVec(3) = ContactVec(3) + coeff * SUM( LocalT2 * SlipCoord )
+               IF( cDofs == 3) ContactVec(3) = ContactVec(3) + coeff * SUM( LocalT2 * SlipCoord )
              ELSE
                ContactVec(2) = ContactVec(2) + coeff * SUM( ContactT1 * SlipCoord )
-               IF( Dofs == 3 ) ContactVec(3) = ContactVec(3) + coeff * SUM( ContactT2 * SlipCoord )
+               IF( cDofs == 3 ) ContactVec(3) = ContactVec(3) + coeff * SUM( ContactT2 * SlipCoord )
              END IF
            END IF
 
@@ -3049,11 +3054,11 @@ CONTAINS
          
 200      IF( IsSlave ) THEN
 
-           MortarBC % Rhs(Dofs*(i-1)+DofN) = -ContactVec(1)
+           MortarBC % Rhs(cDofs*(i-1)+DofN) = -ContactVec(1)
            IF( StickContact .OR. TieContact ) THEN
-             MortarBC % Rhs(Dofs*(i-1)+DofT1) = -ContactVec(2) 
-             IF( Dofs == 3 ) THEN
-               MortarBC % Rhs(Dofs*(i-1)+DofT2) = -ContactVec(3)
+             MortarBC % Rhs(cDofs*(i-1)+DofT1) = -ContactVec(2) 
+             IF( cDofs == 3 ) THEN
+               MortarBC % Rhs(cDofs*(i-1)+DofT2) = -ContactVec(3)
              END IF
            END IF
            
@@ -3075,8 +3080,8 @@ CONTAINS
          GapVar % Values( j ) = ContactVec(1)
 
          IF( CalculateVelocity ) THEN
-           DO k=1,Dofs             
-             VeloVar % Values( Dofs*(j-1)+k ) = ContactVelo(k) 
+           DO k=1,cDofs             
+             VeloVar % Values( cDofs*(j-1)+k ) = ContactVelo(k) 
            END DO
          END IF
        END DO
@@ -3120,8 +3125,8 @@ CONTAINS
                  DistVar % Values(j) = 0.0_dp
                  GapVar % Values(j) = 0.0_dp
                  IF( CalculateVelocity ) THEN
-                   DO k=1,Dofs
-                     VeloVar % Values( Dofs*(j-1)+k ) = 0.0_dp
+                   DO k=1,cDofs
+                     VeloVar % Values( cDofs*(j-1)+k ) = 0.0_dp
                    END DO
                  END IF
                ELSE
@@ -3136,9 +3141,9 @@ CONTAINS
                      ( GapVar % Values(j1) + GapVar % Values(j2))
                  
                  IF( CalculateVelocity ) THEN
-                   DO k=1,Dofs
-                     VeloVar % Values( Dofs*(j-1)+k ) = 0.5_dp * &
-                         ( VeloVar % Values(Dofs*(j1-1)+k) + VeloVar % Values(Dofs*(j2-1)+k))  
+                   DO k=1,cDofs
+                     VeloVar % Values( cDofs*(j-1)+k ) = 0.5_dp * &
+                         ( VeloVar % Values(cDofs*(j1-1)+k) + VeloVar % Values(cDofs*(j2-1)+k))  
                    END DO
                  END IF
                END IF
@@ -3154,8 +3159,8 @@ CONTAINS
                  DistVar % Values(j) = 0.0_dp
                  GapVar % Values(j) = 0.0_dp
                  IF( CalculateVelocity ) THEN
-                   DO k=1,Dofs
-                     VeloVar % Values( Dofs*(j-1)+k ) = 0.0_dp
+                   DO k=1,cDofs
+                     VeloVar % Values( cDofs*(j-1)+k ) = 0.0_dp
                    END DO
                  END IF
                ELSE
@@ -3171,9 +3176,9 @@ CONTAINS
                      ( GapVar % Values(j1) + GapVar % Values(j2))
                  
                  IF( CalculateVelocity ) THEN
-                   DO k=1,Dofs
-                     VeloVar % Values( Dofs*(j-1)+k ) = 0.5_dp * &
-                         ( VeloVar % Values(Dofs*(j1-1)+k) + VeloVar % Values(Dofs*(j2-1)+k))  
+                   DO k=1,cDofs
+                     VeloVar % Values( cDofs*(j-1)+k ) = 0.5_dp * &
+                         ( VeloVar % Values(cDofs*(j1-1)+k) + VeloVar % Values(cDofs*(j2-1)+k))  
                    END DO
                  END IF
                END IF
@@ -3306,7 +3311,7 @@ CONTAINS
              k = FieldPerm( Indexes(i) )
              IF( k == 0 ) CYCLE
              
-             DO l=1,dofs
+             DO l=1,cdofs
                NodalForce(l) = LoadValues(dofs*(k-1)+l)
              END DO
 
@@ -3458,7 +3463,7 @@ CONTAINS
          IF( k == 0 ) CYCLE
          k = UseLoadVar % Perm(j)
 
-         ind = Dofs * (i-1) + DofN
+         ind = cDofs * (i-1) + DofN
 
          ! Tie contact should always be in contact - if we have found a counterpart
          IF( TieContact ) THEN
@@ -3560,7 +3565,7 @@ CONTAINS
        ! Nothing to do 
        IF( LimitedMin <= 0 ) RETURN
 
-       LimitedNow = COUNT( MortarBC % active(DofN::Dofs) )      
+       LimitedNow = COUNT( MortarBC % active(DofN::cDofs) )      
        NewNodes = LimitedMin - LimitedNow
        IF( NewNodes <= 0 ) RETURN
 
@@ -3577,7 +3582,7 @@ CONTAINS
 
        ! Find additional contact nodes from the closest non-contact nodes
        DO i = 1,Projector % NumberOfRows
-         ind = Dofs * (i-1) + DofN
+         ind = cDofs * (i-1) + DofN
          IF( MortarBC % Active(ind)  ) CYCLE
 
          IF( Projector % InvPerm(i) == 0 ) CYCLE
@@ -3610,7 +3615,7 @@ CONTAINS
        WRITE(Message,'(A,ES12.4)') 'Maximum distance needed for new nodes:',DistArray(NewNodes)
        CALL Info(Caller,Message,Level=8)
 
-       MortarBC % Active( Dofs*(IndArray-1)+DofN ) = .TRUE.
+       MortarBC % Active( cDofs*(IndArray-1)+DofN ) = .TRUE.
 
        DEALLOCATE( DistArray, IndArray ) 
 
@@ -3644,7 +3649,7 @@ CONTAINS
            k = UseLoadVar % Perm(j)
                       
            ! If there is no contact there can be no stick either
-           indN = Dofs * (i-1) + DofN
+           indN = cDofs * (i-1) + DofN
            IF( .NOT. MortarBC % Active(indN) ) CYCLE
 
            NodeLoad = UseLoadVar % Values(k)
@@ -3671,15 +3676,15 @@ CONTAINS
        
        ! For stick and tie contact inherit the active flag from the normal component
        IF( SlipContact ) THEN
-         MortarBC % Active( DofT1 :: Dofs ) = .FALSE.
-         IF( Dofs == 3 ) THEN
-            MortarBC % Active( DofT2 :: Dofs ) = .FALSE.
+         MortarBC % Active( DofT1 :: cDofs ) = .FALSE.
+         IF( cDofs == 3 ) THEN
+            MortarBC % Active( DofT2 :: cDofs ) = .FALSE.
           END IF
           GOTO 100 
        ELSE IF( StickContact .OR. TieContact ) THEN
-         MortarBC % Active( DofT1 :: Dofs ) = MortarBC % Active( DofN :: Dofs )
-         IF( Dofs == 3 ) THEN
-           MortarBC % Active( DofT2 :: Dofs ) = MortarBC % Active( DofN :: Dofs ) 
+         MortarBC % Active( DofT1 :: cDofs ) = MortarBC % Active( DofN :: cDofs )
+         IF( cDofs == 3 ) THEN
+           MortarBC % Active( DofT2 :: cDofs ) = MortarBC % Active( DofN :: cDofs ) 
          END IF
          GOTO 100
        END IF
@@ -3698,16 +3703,16 @@ CONTAINS
          IF( k == 0 ) CYCLE
          k = UseLoadVar % Perm(j)
 
-         indN = Dofs * (i-1) + DofN
+         indN = cDofs * (i-1) + DofN
          indT1 = ind - DofN + DofT1
-         IF(Dofs == 3 ) indT2 = ind - DofN + DofT2
+         IF(cDofs == 3 ) indT2 = ind - DofN + DofT2
 
          ! If there is no contact there can be no stick either
          IF( .NOT. MortarBC % Active(indN) ) THEN
            IF( MortarBC % Active(indT1) ) THEN
              removed0 = removed0 + 1
              MortarBC % Active(indT1) = .FALSE.
-             IF( Dofs == 3 ) MortarBC % Active(indT2) = .FALSE.
+             IF( cDofs == 3 ) MortarBC % Active(indT2) = .FALSE.
            END IF
            CYCLE
          END IF
@@ -3719,7 +3724,7 @@ CONTAINS
          IF( Found .AND. coeff > 0.0_dp ) THEN
            IF( .NOT. MortarBC % Active(indT1) ) added = added + 1
            MortarBC % Active(indT1) = .TRUE.
-           IF( Dofs == 3 ) MortarBC % Active(indT2) = .TRUE.
+           IF( cDofs == 3 ) MortarBC % Active(indT2) = .TRUE.
            CYCLE
          END IF
 
@@ -3729,7 +3734,7 @@ CONTAINS
          IF( Found .AND. coeff > 0.0_dp ) THEN
            IF( MortarBC % Active(IndT1) ) removed = removed + 1
            MortarBC % Active(indT1) = .FALSE.
-           IF( Dofs == 3 ) MortarBC % Active(indT2) = .FALSE.
+           IF( cDofs == 3 ) MortarBC % Active(indT2) = .FALSE.
            CYCLE
          END IF
 
@@ -3750,15 +3755,15 @@ CONTAINS
            IF( TangentLoad > mustatic * ABS( NodeLoad ) ) THEN
              removed = removed + 1
              MortarBC % Active(indT1) = .FALSE.
-             IF( Dofs == 3 ) MortarBC % Active(indT2) = .FALSE.
+             IF( cDofs == 3 ) MortarBC % Active(indT2) = .FALSE.
            END IF
          ELSE              
            stickcoeff = ListGetRealAtNode( BC,'Stick Contact Coefficient', j, Found )
            IF( Found ) THEN
-             DO l=1,Dofs             
-               du(l) = VeloVar % Values( Dofs*(k-1)+l ) 
+             DO l=1,cDofs             
+               du(l) = VeloVar % Values( cDofs*(k-1)+l ) 
              END DO
-             IF( Dofs == 3 ) THEN
+             IF( cDofs == 3 ) THEN
                Slip = SQRT(du(dofT1)**2 + du(DofT2)**2)
              ELSE
                Slip = ABS( du(dofT1) )
@@ -3766,7 +3771,7 @@ CONTAINS
              IF( stickcoeff * slip  < mudynamic * ABS( NodeLoad ) ) THEN
                added = added + 1
                MortarBC % Active(indT1) = .TRUE.
-               IF( Dofs == 3 ) MortarBC % Active(indT2) = .TRUE.
+               IF( cDofs == 3 ) MortarBC % Active(indT2) = .TRUE.
              END IF
            END IF
          END IF
@@ -3795,13 +3800,13 @@ CONTAINS
          IF( j == 0 ) CYCLE
          k = NormalActiveVar % Perm(j)
 
-         IF( MortarBC % Active(Dofs*(i-1)+DofN) ) THEN
+         IF( MortarBC % Active(cDofs*(i-1)+DofN) ) THEN
            NormalActiveVar % Values(k) = 1.0_dp
          ELSE
            NormalActiveVar % Values(k) = -1.0_dp
          END IF
 
-         IF( MortarBC % Active(Dofs*(i-1)+DofT1) ) THEN
+         IF( MortarBC % Active(cDofs*(i-1)+DofT1) ) THEN
            StickActiveVar % Values(k) = 1.0_dp
          ELSE
            StickActiveVar % Values(k) = -1.0_dp
@@ -3838,9 +3843,9 @@ CONTAINS
          IF( k == 0 ) CYCLE
          k = UseLoadVar % Perm(j)
 
-         indN = Dofs * (i-1) + DofN
-         indT1 = Dofs * (i-1) + DofT1
-         IF(Dofs == 3 ) indT2 = Dofs * (i-1) + DofT2
+         indN = cDofs * (i-1) + DofN
+         indT1 = cDofs * (i-1) + DofT1
+         IF(cDofs == 3 ) indT2 = cDofs * (i-1) + DofT2
 
          IF( .NOT. MortarBC % Active(indN) ) THEN
            ! If there is no contact there can be no stick either
@@ -3854,7 +3859,7 @@ CONTAINS
          END IF
 
          MortarBC % Diag(indT1) = coeff
-         IF( Dofs == 3 ) MortarBC % Diag(indT2) = coeff
+         IF( cDofs == 3 ) MortarBC % Diag(indT2) = coeff
        END DO
 
        IF(InfoActive(30)) THEN
@@ -3893,7 +3898,7 @@ CONTAINS
          DO i=1,n
            ElemActive(i) = MortarBC % Active( ElemInds(i) ) 
            IF(j>0) THEN
-             ElemInds(i) = Dofs * ( j - 1) + DofN
+             ElemInds(i) = cDofs * ( j - 1) + DofN
              ElemActive(i) = MortarBC % Active( ElemInds(i) ) 
            ELSE
              ElemActive(i) = .FALSE.
@@ -4084,8 +4089,8 @@ CONTAINS
              NormalLoadVar % Values( l2 ) = 0.0_dp
              SlipLoadVar % Values( l2 ) = 0.0_dp
              IF( CalculateVelocity ) THEN
-               DO k=1,Dofs             
-                 VeloVar % Values( Dofs*(l2-1)+k ) = 0.0_dp
+               DO k=1,cDofs             
+                 VeloVar % Values( cDofs*(l2-1)+k ) = 0.0_dp
                END DO
              END IF
              NodeDone( l2 ) = .TRUE.
@@ -4099,9 +4104,9 @@ CONTAINS
            NormalLoadVar % Values( l2 ) = NormalLoadVar % Values( l2 ) + coeff * NormalLoadVar % Values( l ) 
            SlipLoadVar % Values( l2 ) = SlipLoadVar % Values( l2 ) + coeff * SlipLoadVar % Values( l ) 
            IF( CalculateVelocity ) THEN
-             DO k=1,Dofs             
-               VeloVar % Values( Dofs*(l2-1)+k ) = VeloVar % Values( Dofs*(l2-1)+k ) + &
-                   coeff * VeloVar % Values( Dofs*(l-1)+k)
+             DO k=1,cDofs             
+               VeloVar % Values( cDofs*(l2-1)+k ) = VeloVar % Values( cDofs*(l2-1)+k ) + &
+                   coeff * VeloVar % Values( cDofs*(l-1)+k)
              END DO
            END IF
          END DO
@@ -4119,16 +4124,16 @@ CONTAINS
              NormalLoadVar % Values( i ) = NormalLoadVar % Values( i ) / CoeffTable( i ) 
              SlipLoadVar % Values( i ) = SlipLoadVar % Values( i ) / CoeffTable( i ) 
              IF( CalculateVelocity ) THEN
-               DO k=1,Dofs
-                 VeloVar % Values( Dofs*(i-1)+k ) = VeloVar % Values( Dofs*(i-1)+k ) / CoeffTable( i ) 
+               DO k=1,cDofs
+                 VeloVar % Values( cDofs*(i-1)+k ) = VeloVar % Values( cDofs*(i-1)+k ) / CoeffTable( i ) 
                END DO
              END IF
            ELSE
              NormalLoadVar % Values( i ) = 0.0_dp
              SlipLoadVar % Values( i ) = 0.0_dp
              IF( CalculateVelocity ) THEN
-               DO k=1,Dofs
-                 VeloVar % Values( Dofs*(i-1)+k ) = 0.0_dp
+               DO k=1,cDofs
+                 VeloVar % Values( cDofs*(i-1)+k ) = 0.0_dp
                END DO
              END IF             
            END IF
@@ -4148,8 +4153,8 @@ CONTAINS
          
          IF( NormalActiveVar % Values( k ) < 0.0_dp ) THEN
            IF( CalculateVelocity ) THEN
-             DO l=1,Dofs
-               VeloVar % Values( Dofs*(k-1)+l ) = 0.0_dp
+             DO l=1,cDofs
+               VeloVar % Values( cDofs*(k-1)+l ) = 0.0_dp
              END DO
            END IF
          END IF
@@ -4269,12 +4274,12 @@ CONTAINS
              Rotated = GetSolutionRotation(NTT, j )
              LocalNormal = NTT(:,1)
              LocalT1 = NTT(:,2)
-             IF( Dofs == 3 ) LocalT2 = NTT(:,3)
+             IF( cDofs == 3 ) LocalT2 = NTT(:,3)
            ELSE
              Rotated = .FALSE.
              LocalNormal = ContactNormal
              LocalT1 = ContactT1
-             IF( Dofs == 3 ) LocalT2 = ContactT2 
+             IF( cDofs == 3 ) LocalT2 = ContactT2 
            END IF
            
            VeloCoeff = 0.0_dp           
@@ -4292,12 +4297,12 @@ CONTAINS
                END IF
              END IF
              VeloCoeff(DofT1) = SUM( VeloDir(1:3,1) * LocalT1 )
-             IF( Dofs == 3 ) THEN
+             IF( cDofs == 3 ) THEN
                VeloCoeff(DofT2) = SUM( VeloDir(1:3,1) * LocalT2 )
              END IF
            ELSE
-             VeloCoeff(DofT1) = VeloVar % Values(Dofs*(k-1)+DofT1) 
-             IF(Dofs==3) VeloCoeff(DofT2) = VeloVar % Values(Dofs*(k-1)+DofT2) 
+             VeloCoeff(DofT1) = VeloVar % Values(cDofs*(k-1)+DofT1) 
+             IF(cDofs==3) VeloCoeff(DofT2) = VeloVar % Values(cDofs*(k-1)+DofT2) 
              IF( .NOT. Slave .AND. .NOT. Rotated ) THEN
                VeloSign = -1
              END IF
@@ -4315,13 +4320,13 @@ CONTAINS
            VeloCoeff = Coeff * VeloCoeff 
 
            j = FieldPerm( j ) 
-           k = DOFs * (j-1) + DofN 
+           k = cDOFs * (j-1) + DofN 
 
-           k2 = DOFs * (j-1) + DofT1 
+           k2 = cDOFs * (j-1) + DofT1 
            A % Rhs(k2) = A % Rhs(k2) - VeloCoeff(DofT1) * A % Rhs(k)
 
-           IF( Dofs == 3 ) THEN
-             k3 = DOFs * (j-1) + DofT2
+           IF( cDofs == 3 ) THEN
+             k3 = cDOFs * (j-1) + DofT2
              A % Rhs(k3) = A % Rhs(k3) - VeloCoeff(DofT2) * A % Rhs(k)             
            END IF
 
@@ -4332,7 +4337,7 @@ CONTAINS
 
              A % Values(l2) = A % Values(l2) - VeloCoeff(DofT1) * A % Values(l)
              
-             IF( Dofs == 3 ) THEN
+             IF( cDofs == 3 ) THEN
                DO l3 = A % Rows(k3), A % Rows(k3+1)-1
                  IF( A % Cols(l3) == A % Cols(l) ) EXIT
                END DO
@@ -23705,7 +23710,8 @@ CONTAINS
      TYPE(Solver_t) :: Solver
 
      INTEGER, POINTER :: Perm(:)
-     INTEGER :: i,j,j2,k,k2,l,l2,dofs,maxperm,permsize,bc_ind,constraint_ind,row,col,col2,mcount,bcount,kk
+     INTEGER :: i,j,j2,k,k2,l,l2,dofs,maxperm,permsize,bc_ind,constraint_ind,row,col,col2,&
+         mcount,bcount,kk,cdofs,dim
      TYPE(Matrix_t), POINTER :: Atmp,Btmp, Ctmp
      LOGICAL :: AllocationsDone, CreateSelf, ComplexMatrix, TransposePresent, Found, &
          SetDof, SomeSet, SomeSkip, SumProjectors, NewRow, SumThis
@@ -23761,7 +23767,7 @@ CONTAINS
        CALL Info(Caller,'Nothing to do for now',Level=12)
        RETURN
      END IF
-       
+
      
      ! Compute the number and size of initial constraint matrices
      !-----------------------------------------------------------
@@ -23854,22 +23860,15 @@ CONTAINS
 
      CALL Info(Caller,'There are '&
          //I2S(row)//' initial rows in constraint matrices',Level=10)
-     
+
+     dim = Solver % Mesh % MeshDim              
      dofs = Solver % Variable % DOFs
+     
      Perm => Solver % Variable % Perm
      permsize = SIZE( Perm )
      maxperm  = MAXVAL( Perm )
      AllocationsDone = .FALSE.
      arows = Solver % Matrix % NumberOfRows
-     
-     ALLOCATE( ActiveComponents(dofs), SetDefined(dofs), rsum(dofs) ) 
-     
-     IF( SumProjectors ) THEN
-       ALLOCATE( SumPerm( dofs * permsize ) )
-       SumPerm = 0
-       ALLOCATE( SumCount( arows ) )
-       SumCount = 0
-     END IF
      
      ComplexMatrix = Solver % Matrix % Complex
      ComplexSumRow = .FALSE.
@@ -23881,10 +23880,39 @@ CONTAINS
        ! Currently complex matrix is enforced if there is an even number of 
        ! entries since it seems that we cannot rely on the flag to be set.
        ComplexMatrix = ListGetLogical( Solver % Values,'Linear System Complex',Found )
-       IF( .NOT. Found ) ComplexMatrix = ( MODULO( Dofs,2 ) == 0 )
+       IF( .NOT. Found ) ComplexMatrix = ( Dofs == 2*dim) 
      END IF
 
+     IF( ComplexMatrix ) THEN
+       IF(dofs==dim .OR. dofs == 2) THEN
+         cdofs = dofs
+       ELSE
+         CALL Fatal(Caller,'Invalid number of dofs for field: '//I2S(dofs))
+       END IF
+     ELSE     
+       IF(dofs==dim .OR. dofs == 1) THEN
+         cdofs = dofs
+       ELSE IF(dofs==dim+1) THEN
+         ! For contact mechanics we want to ignore the pressure. 
+         IF( ListGetLogical( Solver % Values,'Apply Contact BCs',Found ) ) THEN
+           cdofs = dim
+         ELSE
+           cdofs = dofs
+         END IF
+       ELSE
+         CALL Fatal(Caller,'Invalid number of dofs for field: '//I2S(dofs))
+       END IF
+     END IF
      
+     ALLOCATE( ActiveComponents(dofs), SetDefined(dofs), rsum(dofs) ) 
+     
+     IF( SumProjectors ) THEN
+       ALLOCATE( SumPerm( dofs * permsize ) )
+       SumPerm = 0
+       ALLOCATE( SumCount( arows ) )
+       SumCount = 0
+     END IF
+          
      AnyPriority = ListCheckPresentAnyBC( Model,'Projector Priority') 
      IF( AnyPriority ) THEN
        IF(.NOT. SumProjectors ) THEN
@@ -23990,8 +24018,8 @@ CONTAINS
          ! or skip some field components. 
          SomeSet = .FALSE.
          SomeSkip = .FALSE.
-         DO i=1,Dofs
-           IF( Dofs > 1 ) THEN
+         DO i=1,cDofs
+           IF( cDofs > 1 ) THEN
              str = ComponentName( Solver % Variable, i )
            ELSE
              str = TRIM(Solver % Variable % Name)
@@ -24017,12 +24045,12 @@ CONTAINS
          
          ! By default all components are applied mortar BC and some are turned off.
          ! If the user does the opposite then the default for other components is True.
-         IF( SomeSet .AND. .NOT. ALL(SetDefined) ) THEN
+         IF( SomeSet .AND. .NOT. ALL(SetDefined(1:cdofs)) ) THEN
            IF( SomeSkip ) THEN
-             CALL Fatal(Caller,'Do not know what to do with all components')
+             CALL Fatal(Caller,'Do not know what to do with all '//I2S(cdofs)//' components')
            ELSE
              CALL Info(Caller,'Unspecified components will not be set for BC '//I2S(bc_ind),Level=10)
-             DO i=1,Dofs
+             DO i=1,cDofs
                IF( .NOT. SetDefined(i) ) ActiveComponents(i) = .FALSE.
              END DO
            END IF
@@ -24513,7 +24541,7 @@ CONTAINS
          ! In case of a vector valued problem create a projector that acts on all 
          ! components of the vector. Otherwise follow the same logic.
          DO i=1,Atmp % NumberOfRows           
-           DO j=1,Dofs
+           DO j=1,cDofs
              
              IF( .NOT. ActiveComponents(j) ) THEN
                CALL Info(Caller,'Skipping component: '//I2S(j),Level=12)
@@ -24534,7 +24562,7 @@ CONTAINS
 
              IF( ThisIsMortar ) THEN
                IF( ASSOCIATED( MortarBC % Active ) ) THEN
-                 IF( .NOT. MortarBC % Active(Dofs*(i-1)+j) ) CYCLE
+                 IF( .NOT. MortarBC % Active(cDofs*(i-1)+j) ) CYCLE
                END IF
              END IF
 
@@ -24552,19 +24580,19 @@ CONTAINS
              END IF
 
              IF( SumThis ) THEN
-               IF( Dofs*(k-1)+j > SIZE(SumPerm) ) THEN
+               IF( cDofs*(k-1)+j > SIZE(SumPerm) ) THEN
                  CALL Fatal(Caller,'Index out of range')
                END IF
-               NewRow = ( SumPerm(Dofs*(kk-1)+j) == 0 )
+               NewRow = ( SumPerm(cDofs*(kk-1)+j) == 0 )
                IF( NewRow ) THEN
                  sumrow = sumrow + 1                
                  IF( Priority /= 0 ) THEN
                    ! Use negative sign to show that this has already been set by priority
-                   SumPerm(Dofs*(kk-1)+j) = -sumrow 
+                   SumPerm(cDofs*(kk-1)+j) = -sumrow 
                  ELSE
-                   SumPerm(Dofs*(kk-1)+j) = sumrow 
+                   SumPerm(cDofs*(kk-1)+j) = sumrow 
                  END IF
-               ELSE IF( Priority /= PrevPriority .AND. SumPerm(Dofs*(kk-1)+j) < 0 ) THEN
+               ELSE IF( Priority /= PrevPriority .AND. SumPerm(cDofs*(kk-1)+j) < 0 ) THEN
                  IF(.NOT. AllocationsDone ) THEN
                    NeglectedRows = NeglectedRows + 1
                  END IF                 
@@ -24574,7 +24602,7 @@ CONTAINS
                    EliminatedRows = EliminatedRows + 1
                  END IF
                END IF
-               row = ABS( SumPerm(Dofs*(kk-1)+j) )
+               row = ABS( SumPerm(cDofs*(kk-1)+j) )
              ELSE
                sumrow = sumrow + 1
                row = sumrow
@@ -24692,7 +24720,7 @@ CONTAINS
              IF( ThisIsMortar ) THEN
                IF( ASSOCIATED( MortarBC % Diag ) .OR. HaveMortarDiag ) THEN
                  IF( .NOT. HaveMortarDiag ) THEN
-                   MortarDiag = MortarBC % Diag(Dofs*(i-1)+j)
+                   MortarDiag = MortarBC % Diag(cDofs*(i-1)+j)
                    LumpedDiag = MortarBC % LumpedDiag
                  END IF
 
@@ -24735,7 +24763,7 @@ CONTAINS
                  Btmp % Rhs(row) = SetVal(j)
                ELSE IF( ThisIsMortar ) THEN
                  IF( ASSOCIATED( MortarBC % Rhs ) ) THEN
-                   Btmp % Rhs(row) = wsum * MortarBC % rhs(Dofs*(i-1)+j)
+                   Btmp % Rhs(row) = wsum * MortarBC % rhs(cDofs*(i-1)+j)
                  END IF
                END IF
                IF(.NOT. SumThis ) THEN
