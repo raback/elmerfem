@@ -1940,9 +1940,16 @@ CONTAINS
      END IF     
 
      pContact = IsPelement(Mesh % Elements(1) )
+     IF( pContact ) THEN
+       ! We only have to deal with the middle dofs if they are not condensated away!
+       IF( .NOT. ListGetLogical( Params,'Bubbles in Global System',Found ) ) THEN
+         IF(Found) pContact = .FALSE.   
+       END IF
+     END IF
      IF( ListGetLogical( Params,'Contact Linear Basis',Found ) ) THEN
        pContact = .FALSE.
      END IF
+    
      IF( pContact ) THEN
        CALL Info(Caller,'Using p-elements for contact, if available in projector!',Level=8)
      END IF
