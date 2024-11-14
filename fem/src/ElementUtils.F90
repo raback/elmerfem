@@ -3523,7 +3523,8 @@ CONTAINS
     ! We do not need P-elements if the value is to be found in node since
     ! the higher order p-basis does not have any effect there.
     pElem = .FALSE.
-    IF(.NOT. PRESENT(LocalNode)) THEN
+    IF(PRESENT(LocalCoord)) THEN
+!    IF(.NOT. PRESENT(LocalNode)) THEN
       IF(ASSOCIATED(Var % Solver)) THEN
         pElem = isActivePElement(Element, Var % Solver) 
       END IF
