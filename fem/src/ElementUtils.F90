@@ -3519,9 +3519,14 @@ CONTAINS
     DGVar = ( Var % TYPE == variable_on_nodes_on_elements ) 
     IpVar = ( Var % TYPE == variable_on_gauss_points )
     ElemVar = ( Var % TYPE == Variable_on_elements )       
+
+    ! We do not need P-elements if the value is to be found in node since
+    ! the higher order p-basis does not have any effect there.
     pElem = .FALSE.
-    IF(ASSOCIATED(Var % Solver)) THEN
-      pElem = isActivePElement(Element, Var % Solver)                              
+    IF(.NOT. PRESENT(LocalNode)) THEN
+      IF(ASSOCIATED(Var % Solver)) THEN
+        pElem = isActivePElement(Element, Var % Solver) 
+      END IF
     END IF
       
     PiolaVersion = .FALSE.
