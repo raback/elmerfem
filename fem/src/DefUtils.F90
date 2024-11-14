@@ -4524,13 +4524,11 @@ CONTAINS
 
      IF ( PRESENT( USolver ) ) THEN
         Solver => USolver
-        A => Solver % Matrix
-        x => Solver % Variable
      ELSE
         Solver => CurrentModel % Solver
-        A => Solver % Matrix
-        x => Solver % Variable
      END IF
+     A => Solver % Matrix
+     x => Solver % Variable
 
      Element => GetCurrentElement( UElement ) 
 
@@ -4569,10 +4567,15 @@ CONTAINS
      IF( Solver % PeriodicFlipActive ) THEN
        CALL FlipPeriodicLocalMatrix( Solver, n, Indexes, x % dofs, M )
      END IF
-      
-     CALL UpdateMassMatrix( A, M, n, x % DOFs, x % Perm(Indexes(1:n)), & 
-         A % PrecValues )
 
+     SELECT CASE( A % Format )
+     CASE( MATRIX_CRS )
+       CALL CRS_GlueLocalMatrix( A, n, x % DOFs, x % Perm(Indexes(1:n)), &
+           M, A % PrecValues )
+     CASE DEFAULT
+       CALL FATAL( 'DefaultUpdatePrecR', 'Unexpected matrix format')
+     END SELECT
+ 
      IF( Solver % PeriodicFlipActive ) THEN
        CALL FlipPeriodicLocalMatrix( Solver, n, Indexes, x % dofs, M )
      END IF
@@ -4600,13 +4603,11 @@ CONTAINS
 
      IF ( PRESENT( USolver ) ) THEN
         Solver => USolver
-        A => Solver % Matrix
-        x => Solver % Variable
      ELSE
         Solver => CurrentModel % Solver
-        A => Solver % Matrix
-        x => Solver % Variable
      END IF
+     A => Solver % Matrix
+     x => Solver % Variable
 
      Element => GetCurrentElement( UElement ) 
 
@@ -4656,9 +4657,15 @@ CONTAINS
      IF( Solver % PeriodicFlipActive ) THEN
        CALL FlipPeriodicLocalMatrix( Solver, n, Indexes, x % dofs, M )
      END IF
-     
-     CALL UpdateMassMatrix( A, M, n, x % DOFs, x % Perm(Indexes(1:n)), &
-              A % PrecValues )
+
+     SELECT CASE( A % Format )
+     CASE( MATRIX_CRS )
+       CALL CRS_GlueLocalMatrix( A, n, x % DOFs, x % Perm(Indexes(1:n)), &
+           M, A % PrecValues )
+     CASE DEFAULT
+       CALL FATAL( 'DefaultUpdatePrecC', 'Unexpected matrix format')
+     END SELECT
+
      DEALLOCATE( M )
 !------------------------------------------------------------------------------
   END SUBROUTINE DefaultUpdatePrecC
