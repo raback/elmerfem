@@ -822,7 +822,7 @@ CONTAINS
     REAL(KIND=dp), ALLOCATABLE :: Re_Eigenf(:), Im_Eigenf(:)
     REAL(KIND=dp) :: th, DetJ
     LOGICAL :: Stat, Found, UpdateStiff, WithNdofs, ThinSheet, ConductorBC, EigenBC, PortSource
-    LOGICAL :: LineElement, DegenerateElement, Regularize
+    LOGICAL :: LineElement, DegenerateElement, Regularize, Consistent
     LOGICAL :: AllocationsDone = .FALSE.
     TYPE(GaussIntegrationPoints_t) :: IP
     INTEGER :: t, i, j, m, np, p, q, ndofs, EigenInd
@@ -880,6 +880,10 @@ CONTAINS
     MASS = 0.0_dp
     FORCE = 0.0_dp
 
+    ndofs = MAXVAL(Solver % Def_Dofs(GetElementFamily(Element),:,1))
+    WithNdofs = ndofs > 0
+    np = n * ndofs
+    
     ! Check whether BC should be created in terms of pre-computed eigenfunction:
     EigenBC = ListGetElementLogical(EigenvectorSource, Element, Found)
 
@@ -894,8 +898,13 @@ CONTAINS
           Eigensolver, EigenInd, ComplexPart=.FALSE.)
       
       nd_eigen = GetElementNOFDOFs(USolver=Eigensolver)
-      nd_eigen = nd_eigen - n
-      IF (nd_eigen /= nd) CALL Fatal(Caller, &
+      
+      IF (WithNDOFs) THEN
+        Consistent = (nd_eigen == nd)
+      ELSE
+        Consistent = (nd_eigen - n) == nd
+      END IF
+      IF (.NOT. Consistent) CALL Fatal(Caller, &
           'The DOFs of the port model are not compatible with the DOFs of this solver')
     END IF
 
@@ -905,15 +914,8 @@ CONTAINS
     IP = GaussPoints(Element, EdgeBasis=.TRUE., PReferenceElement=PiolaVersion, &
         EdgeBasisDegree=EdgeBasisDegree )
 
-    ndofs = MAXVAL(Solver % Def_Dofs(GetElementFamily(Element),:,1))
-    np = n * ndofs
-    WithNdofs = ndofs > 0
-
     IF (WithNdofs) THEN
       Regularize = UseGaussLaw .AND. ListGetElementLogical( ChargeConservation, Element, Found )
-      IF (EigenBC) THEN
-        CALL Fatal(Caller, 'Eigenfunction BC needs the plain E-formulation')
-      END IF
     END IF
 
     LineElement = GetElementFamily(Element) == 2
