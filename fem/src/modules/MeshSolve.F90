@@ -314,8 +314,16 @@ END SUBROUTINE MeshSolver_Init
       nb = GetElementNOFBDOFs()
 
       LOAD = 0.0D0
-      Alpha      = 0.0D0
-      Beta       = 0.0D0
+      Alpha =  0.0D0
+      DO i = 1, DIM
+        Alpha(i,1:n)      =  ListGetReal( BC, 'Mesh Penalty Factor '//TRIM(I2S(i)), n, Element % NodeIndexes, Found)        
+        IF (Found) THEN
+          WRITE(Message,*) 'Mesh Penalty Factor '//TRIM(I2S(i))//' =', Alpha(i,1) 
+          CALL INFO("MeshSolve", Message, Level=3)
+          !CALL INFO("MeshSolve"
+        END IF
+      END DO
+      Beta       =  0.0D0
 
       GotForceBC = .FALSE.
       LOAD(1,1:n) =  GetReal( BC, 'Mesh Force 1', Found )
