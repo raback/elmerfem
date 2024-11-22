@@ -232,7 +232,7 @@ SUBROUTINE VectorHelmholtzSolver( Model,Solver,dt,Transient )
 ! Local variables
 !------------------------------------------------------------------------------
   TYPE(Solver_t), POINTER :: Eigensolver => NULL()
-  LOGICAL :: Found, HasPrecDampCoeff, MassProportional
+  LOGICAL :: Found, PrecMatrix, HasPrecDampCoeff, MassProportional, CurlCurlPrec
   REAL(KIND=dp) :: Omega, mu0inv, eps0, rob0
   INTEGER :: i, soln, NoIterationsMax, EdgeBasisDegree
   TYPE(Mesh_t), POINTER :: Mesh
@@ -276,12 +276,19 @@ SUBROUTINE VectorHelmholtzSolver( Model,Solver,dt,Transient )
   PrecDampCoeff = CMPLX(REAL(PrecDampCoeff), &
       GetCReal(SolverParams, 'Linear System Preconditioning Damp Coefficient im', Found ) )
   HasPrecDampCoeff = HasPrecDampCoeff .OR. Found 
-  IF (HasPrecDampCoeff) MassProportional = GetLogical(SolverParams, 'Mass-proportional Damping', Found)
-
-  IF(HasPrecDampCoeff) THEN
+  IF (HasPrecDampCoeff) THEN
+    MassProportional = GetLogical(SolverParams, 'Mass-proportional Damping', Found)
+  ELSE
+    MassProportional = .FALSE.
+  END IF
+    
+  CurlCurlPrec = GetLogical(SolverParams, 'Curl-Curl Preconditioning', Found)
+  PrecMatrix = HasPrecDampCoeff .OR. CurlCurlPrec
+  
+  IF(PrecMatrix) THEN
     IF(ListGetString(SolverParams,'Linear System Solver',Found ) == 'direct') THEN
-      CALL Warn(Caller,'Damped preconditioning does not make sense for direct methods, canceling!')
-      HasPrecDampCoeff = .FALSE.
+      CALL Warn(Caller,'Generating preconditioning matrix does not make sense for direct methods, canceling!')
+      PrecMatrix = .FALSE.
     ELSE
       CALL Info(Caller,'Generating special preconditioning matrix',Level=12)
     END IF
@@ -558,6 +565,7 @@ CONTAINS
     COMPLEX(KIND=dp) :: eps, muinv, Cond, L(3)
     REAL(KIND=dp) :: DetJ, weight
     COMPLEX(KIND=dp), ALLOCATABLE :: STIFF(:,:), FORCE(:), MASS(:,:), Gauge(:,:), PREC(:,:)
+    COMPLEX(KIND=dp), ALLOCATABLE, SAVE :: CurlMat(:,:)
     REAL(KIND=dp), ALLOCATABLE :: Basis(:),dBasisdx(:,:),WBasis(:,:),RotWBasis(:,:)
     LOGICAL :: Stat, WithNDOFs, ConductorBody
     LOGICAL :: AllocationsDone = .FALSE.
@@ -572,7 +580,7 @@ CONTAINS
     IF(.NOT. AllocationsDone ) THEN
       m = Mesh % MaxElementDOFs
       ALLOCATE( WBasis(m,3), RotWBasis(m,3), Basis(m), dBasisdx(m,3), &
-          MASS(m,m), STIFF(m,m), Gauge(m,m), PREC(m,m), FORCE(m) )      
+          MASS(m,m), STIFF(m,m), Gauge(m,m), PREC(m,m), CurlMat(m,m), FORCE(m) )      
       AllocationsDone = .TRUE.
     END IF
 
@@ -589,6 +597,7 @@ CONTAINS
  
     STIFF(1:nd,1:nd) = 0.0_dp
     MASS(1:nd,1:nd)  = 0.0_dp
+    CurlMat = 0.0_dp
     FORCE(1:nd) = 0.0_dp
 
     ndofs = MAXVAL(Solver % Def_Dofs(GetElementFamily(Element),:,1))
@@ -599,7 +608,7 @@ CONTAINS
       Gauge(1:nd,1:nd)  = 0.0_dp
     END IF
 
-    IF (HasPrecDampCoeff) PREC = 0.0_dp    
+    IF (PrecMatrix) PREC = 0.0_dp
     
     ! Numerical integration:
     !----------------------
@@ -628,7 +637,7 @@ CONTAINS
         DO q = 1,nd-np
           j = q+np
           ! the mu^-1 curl E . curl v 
-          STIFF(i,j) = STIFF(i,j) + muinv * &
+          CurlMat(i,j) = CurlMat(i,j) + muinv * &
               SUM(RotWBasis(p,:) * RotWBasis(q,:)) * weight
         END DO
       END DO
@@ -783,21 +792,30 @@ CONTAINS
       END IF
     END DO
 
-    IF( HasPrecDampCoeff ) THEN
-      IF (MassProportional) THEN
+    IF( PrecMatrix ) THEN
+      IF (CurlCurlPrec) THEN
+        PREC = STIFF(1:nd,1:nd) + CurlMat(1:nd,1:nd)
+        IF (WithNDOFs) THEN 
+          PREC(1:nd,1:nd) = PREC(1:nd,1:nd) + Gauge(1:nd,1:nd)
+        END IF
+      ELSE IF (MassProportional) THEN
         PREC = -PrecDampCoeff * (MASS(1:nd,1:nd))
       ELSE
-        PREC = PrecDampCoeff * (STIFF(1:nd,1:nd) - MASS(1:nd,1:nd))
+        PREC = PrecDampCoeff * (STIFF(1:nd,1:nd) + CurlMat(1:nd,1:nd) - MASS(1:nd,1:nd))
       END IF
     END IF
 
-    STIFF(1:nd,1:nd) = STIFF(1:nd,1:nd) + MASS(1:nd, 1:nd)
+    STIFF(1:nd,1:nd) = STIFF(1:nd,1:nd) + CurlMat(1:nd,1:nd) + MASS(1:nd, 1:nd)
     IF (WithNDOFs) THEN 
       STIFF(1:nd,1:nd) = STIFF(1:nd,1:nd) + Gauge(1:nd,1:nd)
     END IF
 
-    IF( HasPrecDampCoeff ) THEN
-      CALL DefaultUpdatePrec(STIFF(1:nd,1:nd) + PREC(1:nd,1:nd))
+    IF( PrecMatrix ) THEN
+      IF (CurlCurlPrec) THEN
+        CALL DefaultUpdatePrec(PREC(1:nd,1:nd))
+      ELSE
+        CALL DefaultUpdatePrec(STIFF(1:nd,1:nd) + PREC(1:nd,1:nd))
+      END IF
     END IF
     
     ! Update global matrix and rhs vector from local matrix & vector:
@@ -1098,8 +1116,8 @@ CONTAINS
     END DO
 
     IF (UpdateStiff) THEN
-      IF (HasPrecDampCoeff) THEN
-        IF (MassProportional) THEN
+      IF (PrecMatrix) THEN
+        IF (MassProportional .OR. CurlCurlPrec) THEN
           CALL DefaultUpdatePrec(STIFF)
         ELSE
           CALL DefaultUpdatePrec(PrecDampCoeff*STIFF + STIFF)
