@@ -299,6 +299,7 @@ CONTAINS
 #ifdef HAVE_HYPRE
      IF (Matrix % Hypre /= 0) THEN
        CALL SolveHypre4(Matrix % Hypre)
+       Matrix % Hypre = 0
      END IF
 #endif
 

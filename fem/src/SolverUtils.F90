@@ -14446,7 +14446,7 @@ END FUNCTION SearchNodeL
     TYPE(Mesh_t), POINTER :: Mesh
     LOGICAL :: Relax,GotIt,Stat,ScaleSystem, EigenAnalysis, HarmonicAnalysis,&
                BackRotation, ApplyRowEquilibration, ApplyLimiter, Parallel, &
-               SkipZeroRhs, ComplexSystem, ComputeChangeScaled, &
+               SkipZeroRhs, SkipLoads, ComplexSystem, ComputeChangeScaled, &
                RecursiveAnalysis, CalcLoads
     INTEGER :: n,i,j,k,l,ii,m,DOF,istat,this,mn, AllocStat
     CHARACTER(:), ALLOCATABLE :: Method, Prec, SaveSlot
@@ -14514,7 +14514,10 @@ END FUNCTION SearchNodeL
       ScaleSystem = ListGetLogical( Params, 'Linear System Scaling', GotIt )
       IF ( .NOT. GotIt  ) ScaleSystem = .TRUE.
     END IF
-   
+
+    SkipLoads = ListGetLogical( Params,'Linear System Skip Loads',GotIt)
+    
+    
     IF( A % COMPLEX ) THEN
       CALL Info(Caller,'Assuming complex valued linear system',Level=6)
     ELSE
@@ -14841,10 +14844,10 @@ END FUNCTION SearchNodeL
       Method = 'rocalution'
     
     IF ( .NOT. Parallel ) THEN
-      CALL Info(Caller,'Serial linear System Solver: '//TRIM(Method),Level=8)
-
       IF(ListGetLogical(Params, 'Linear System Use Hypre', Found)) Method = 'hypre'
-            
+
+      CALL Info(Caller,'Serial linear System Solver: '//TRIM(Method),Level=8)
+      
       SELECT CASE(Method)
       CASE('multigrid')
         CALL MultiGridSolve( A, x, b, &
@@ -14852,8 +14855,7 @@ END FUNCTION SearchNodeL
       CASE('iterative')
         CALL IterSolver( A, x, b, Solver )
       CASE('feti')
-        CALL Fatal(Caller, &
-            'Feti solver available only in parallel.')
+        CALL Fatal(Caller,'Feti solver available only in parallel.')
       CASE('block')
         CALL BlockSolveExt( A, x, b, Solver )
       CASE('amgx')
@@ -14861,7 +14863,7 @@ END FUNCTION SearchNodeL
       CASE('rocalution')
         CALL ROCSolver( A, x, b, Solver )
       CASE('hypre')
-        CALL HypreSolverSerial( A, x, b, Solver )
+        CALL SolveHypre( A, x, b, Solver )
       CASE('direct')
         CALL DirectSolver( A, x, b, Solver )        
       CASE DEFAULT        
@@ -14919,20 +14921,23 @@ END FUNCTION SearchNodeL
       IF (ASSOCIATED(BulkMatrix) ) Aaid=>BulkMatrix
     END IF
 
-    NodalLoads => VariableGet( Solver % Mesh % Variables, &
-        GetVarName(Solver % Variable) // ' Loads' )
-    IF( ASSOCIATED( NodalLoads ) ) THEN
-      ! Nodal loads may be allocated but the user may have toggled
-      ! the 'calculate loads' flag such that no load computation should be performed.
-      CalcLoads = ListGetLogical( Solver % Values,'Calculate Loads',GotIt )
-      IF( .NOT. GotIt ) CalcLoads = .TRUE.
-      IF( CalcLoads ) THEN
-        CALL Info(Caller,'Calculating nodal loads for: '//&
-            GetVarName(Solver % Variable),Level=6)
-        CALL CalculateLoads( Solver, Aaid, x, Dofs, .TRUE., NodalLoads ) 
+    NodalLoads => NULL()
+    IF(.NOT. SkipLoads ) THEN
+      NodalLoads => VariableGet( Solver % Mesh % Variables, &
+          GetVarName(Solver % Variable) // ' Loads' )
+      IF( ASSOCIATED( NodalLoads ) ) THEN
+        ! Nodal loads may be allocated but the user may have toggled
+        ! the 'calculate loads' flag such that no load computation should be performed.
+        CalcLoads = ListGetLogical( Solver % Values,'Calculate Loads',GotIt )
+        IF( .NOT. GotIt ) CalcLoads = .TRUE.
+        IF( CalcLoads ) THEN
+          CALL Info(Caller,'Calculating nodal loads for: '//&
+              GetVarName(Solver % Variable),Level=6)
+          CALL CalculateLoads( Solver, Aaid, x, Dofs, .TRUE., NodalLoads ) 
+        END IF
       END IF
     END IF
-
+      
     IF (BackRotation) THEN
       CALL BackRotateNTSystem( x, Solver % Variable % Perm, DOFs )
       IF( ASSOCIATED( NodalLoads ) ) THEN
@@ -14949,18 +14954,19 @@ END FUNCTION SearchNodeL
       CALL ComputeChange(Solver,.FALSE.,n, x, Matrix=A, RHS=b )
     END IF
     Norm = Solver % Variable % Norm
-    
-    NodalLoads => VariableGet( Solver % Mesh % Variables, &
-        GetVarName(Solver % Variable) // ' Residual' )
-    IF( ASSOCIATED( NodalLoads ) ) THEN
-      CalcLoads = ListGetLogical( Solver % Values,'Calculate Residual',GotIt )
-      IF( .NOT. GotIt ) CalcLoads = .TRUE.
-      IF( CalcLoads ) THEN
-        CALL Info(Caller,'Calculating nodal residual',Level=6)
-        CALL CalculateLoads( Solver, Aaid, x, Dofs, .FALSE., NodalLoads ) 
+
+    IF(.NOT. SkipLoads ) THEN
+      NodalLoads => VariableGet( Solver % Mesh % Variables, &
+          GetVarName(Solver % Variable) // ' Residual' )
+      IF( ASSOCIATED( NodalLoads ) ) THEN
+        CalcLoads = ListGetLogical( Solver % Values,'Calculate Residual',GotIt )
+        IF( .NOT. GotIt ) CalcLoads = .TRUE.
+        IF( CalcLoads ) THEN
+          CALL Info(Caller,'Calculating nodal residual',Level=6)
+          CALL CalculateLoads( Solver, Aaid, x, Dofs, .FALSE., NodalLoads ) 
+        END IF
       END IF
     END IF
-
     
 !------------------------------------------------------------------------------
  

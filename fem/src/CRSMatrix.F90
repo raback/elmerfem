@@ -1805,7 +1805,11 @@ SUBROUTINE CRS_RowSumInfo( A, Values )
        CALL Info('CRS_Transpose','Creating a transpose of matrix',Level=20)
        
        B => AllocateMatrix()
-       
+
+       IF(.NOT. ASSOCIATED(A) ) THEN
+         CALL Fatal('CRS_Transpose','Matrix not associated!')
+       END IF
+         
        na = A % NumberOfRows
        IF( na == 0 ) THEN
          B % NumberOfRows = 0
@@ -1824,12 +1828,14 @@ SUBROUTINE CRS_RowSumInfo( A, Values )
          ALLOCATE( B % Diag(nb) )       
          B % Diag = 0
        END IF
-         
+
+       ! Count how many hits there are in A for each column
        Row = 0       
        DO i = 1, NVals
          Row( A % Cols(i) ) = Row( A % Cols(i) ) + 1
        END DO
-       
+
+       ! For transpose the column hits are row hits
        B % Rows = 0
        B % Rows(1) = 1
        DO i = 1, nB
@@ -1837,10 +1843,8 @@ SUBROUTINE CRS_RowSumInfo( A, Values )
        END DO
        B % Cols = 0
        
-       DO i = 1, nB
-         Row(i) = B % Rows(i)
-       END DO
-
+       ! Location of 1st entry in each row
+       Row(1:nB) = B % Rows(1:nB)
        
        DO i = 1, nA
 
@@ -1852,7 +1856,7 @@ SUBROUTINE CRS_RowSumInfo( A, Values )
              B % Values( Row(k) ) = A % Values(j)
              Row(k) = Row(k) + 1
            ELSE
-             WRITE( Message, * ) 'Trying to access non-existent column', i,k,j
+             WRITE( Message, * ) 'Trying to access column beyond allocation: ', i,k,j
              CALL Error( 'CRS_Transpose', Message )
              RETURN
            END IF
