@@ -531,6 +531,9 @@ CONTAINS
     DO i=1,NoVar
       Amat => BlockMatrix % Submatrix(i,i) % Mat 
       n = Amat % NumberOfRows
+      IF(n == 0) THEN
+        CALL Info('BlockInitVar','Zero rows, skipping...')
+      END IF
       
       BlockMatrix % Offset(i+1) = BlockMatrix % Offset(i) + n
       BlockMatrix % MaxSize = MAX( BlockMatrix % MaxSize, n )
@@ -581,7 +584,9 @@ CONTAINS
 
       IF(PRESENT(BlockIndex)) THEN
         B => BlockMatrix % SubMatrix(i,i) % Mat
-        Var % Values = Solver % Variable % Values(B % InvPerm)
+        IF(ASSOCIATED(B % InvPerm ) ) THEN
+          Var % Values = Solver % Variable % Values(B % InvPerm)
+        END IF
       END IF
 
     END DO
@@ -617,6 +622,11 @@ CONTAINS
       Amat => BlockMatrix % Submatrix(i,i) % Mat 
       n = Amat % NumberOfRows
       Var => BlockMatrix % SubVector(i) % Var 
+
+      IF(.NOT. ASSOCIATED(Amat % InvPerm) ) THEN
+        CALL Warn('BlockBackCopyVar','"Amat % InvPerm" not associated!')
+        CYCLE
+      END IF
       
       ! Copy the block part to the monolithic solution
       DO j=1,n
@@ -987,8 +997,7 @@ CONTAINS
 
   
 
-
-    !-------------------------------------------------------------------------------------
+  !-------------------------------------------------------------------------------------
   !> Picks the components of a full matrix when blockindex table is given.
   !-------------------------------------------------------------------------------------
   SUBROUTINE BlockPickMatrixPerm( Solver, BlockIndex, NoVar )
@@ -1027,11 +1036,21 @@ CONTAINS
     DO i = 1, NoVar
       B => TotMatrix % SubMatrix(i,i) % Mat
       n = rowcount(i)
-      
-      ALLOCATE(B % Rhs(n))
+
+      IF(ASSOCIATED(B % rhs)) THEN
+        IF(SIZE(B % Rhs) /= n) DEALLOCATE( B % rhs)
+      END IF
+      IF(.NOT. ASSOCIATED(B % rhs)) THEN
+        ALLOCATE(B % Rhs(n))
+      END IF
       B % rhs = 0.0_dp
       
-      ALLOCATE(B % InvPerm(n))
+      IF(ASSOCIATED(B % InvPerm)) THEN
+        IF(SIZE(B % InvPerm) /= n) DEALLOCATE( B % InvPerm)
+      END IF
+      IF(.NOT. ASSOCIATED(B % InvPerm)) THEN
+       ALLOCATE(B % InvPerm(n))
+      END IF
       B % InvPerm = 0 
       ! Add the (n,n) entry since this helps to create most efficiently the full ListMatrix
       ! CALL AddToMatrixElement(B,n,n,0.0_dp)      
@@ -1066,7 +1085,9 @@ CONTAINS
     DO i = 1, NoVar
       DO j = 1, NoVar
         B => TotMatrix % SubMatrix(i,j) % Mat
-        CALL List_toCRSMatrix(B)
+        IF( B % FORMAT == MATRIX_LIST ) THEN
+          CALL List_toCRSMatrix(B)
+        END IF
       END DO
     END DO
               
