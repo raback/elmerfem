@@ -121,8 +121,15 @@ CONTAINS
        Mesh => Solver % Mesh
        DOFs = Solver % Variable % DOFs
 
-       Perm => Solver % Variable % Perm
-       IF(PRESENT(inPerm)) Perm=>InPerm
+       IF(PRESENT(inPerm)) THEN
+         Perm => InPerm
+       ELSE
+         Perm => Solver % Variable % Perm
+       END IF
+       IF(.NOT. ASSOCIATED(Perm)) THEN
+         CALL Fatal('ParallelInitMatrix','Cannot initialize matrix without Perm vector!')
+       END IF
+       
 
        n = SIZE(Perm)
        k = n*DOFs + Matrix % ExtraDOFs
@@ -155,7 +162,7 @@ CONTAINS
        Matrix % INVPerm = 0
        DO i=1,SIZE(Matrix % Perm)
           IF ( Matrix % Perm(i) /= 0 ) THEN
-             Matrix % INVPerm(Matrix % Perm(i)) = i
+             Matrix % InvPerm(Matrix % Perm(i)) = i
           END IF
        END DO
 

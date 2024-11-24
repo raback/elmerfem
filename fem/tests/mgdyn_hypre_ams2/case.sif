@@ -1,5 +1,7 @@
 ! Test case for Hypre AMS - Auxiliary-space Maxwell Solver
-! This test case with BiCGStab as solver, AMS as precondtioner. 
+! This one using AMS as solver, not preconditioner.
+!
+! P.R. 19.11.2024
 
 $ mu_pm = 1.05
 $ mu0 = 4e-7*pi
@@ -103,7 +105,7 @@ Solver 1 ! whitneyavsolver
   Linear System Convergence Tolerance = 1.e-6
   Linear System Max Iterations = 5000
   Linear System Residual Output = 10
-  Linear System preconditioning = ams
+!  Linear System preconditioning = ams
 
 ! AMS          2 
 ! PCG          6 
@@ -113,7 +115,7 @@ Solver 1 ! whitneyavsolver
 ! LGMRes       10
 ! COGMRes      11
 
-  Linear System Method Hypre Index = Integer 7
+  Linear System Method Hypre Index = Integer 2
 
 !  Linear System Iterative Method = bicgstab
 

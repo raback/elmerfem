@@ -1,5 +1,8 @@
 ! Test case for Hypre AMS - Auxiliary-space Maxwell Solver
-! This test case with BiCGStab as solver, AMS as precondtioner. 
+!
+! This one tests all the Krylov methods in Hypre suite using AMS as preconditioner.
+!
+! P.R. 19.11.2024
 
 $ mu_pm = 1.05
 $ mu0 = 4e-7*pi
@@ -10,10 +13,12 @@ Header
 End
 
 Simulation
-  Max Output Level = 7
+  Max Output Level = 6
   Coordinate System = Cartesian
-  Simulation Type = steady state
-  Use Mesh Names = False
+  Simulation Type = Steady State
+
+! If you want to really compare the timings of different methods!
+!  Mesh Levels = 3
 End
 
 Material 1 ! Air
@@ -90,10 +95,7 @@ Solver 1 ! whitneyavsolver
   Variable = "A"
   Procedure = "MagnetoDynamics" "WhitneyAVSolver"
 
-  Fix Input Current Density = true
-! Use Piola Transform = Logical true
-! quadratic approximation = logical false
-  use tree gauge = logical false
+  Fix Input Current Density = false
 
   linear system use hypre = logical true
   Newton-Raphson Iteration = logical false
@@ -105,6 +107,7 @@ Solver 1 ! whitneyavsolver
   Linear System Residual Output = 10
   Linear System preconditioning = ams
 
+! Unique numbering is 100*solver + preconditioner
 ! AMS          2 
 ! PCG          6 
 ! BiCGStab     7 
@@ -113,9 +116,12 @@ Solver 1 ! whitneyavsolver
 ! LGMRes       10
 ! COGMRes      11
 
-  Linear System Method Hypre Index = Integer 7
+!  Linear System Method Hypre Index = Integer 6
+  Linear System Iterative Method = "pcg"
 
-!  Linear System Iterative Method = bicgstab
+! With this keyword each linear solver starts from zero!
+! Otherwise the methods after 1st one will converge immediately. 
+  Linear System Nullify Guess = True
 
   Edge Basis = Logical True
 
@@ -130,25 +136,9 @@ Solver 2 ! MagnetoDynamicsCalcFields
   Use Piola Transform = Logical true
   quadratic approximation = logical false
 
-  Calculate Current Density = Logical True
-  Calculate Electric Field = Logical True
   Calculate Magnetic Field Strength = Logical True
-  Calculate Magnetic Vector Potential = Logical True
-  !Calculate Nodal Forces = Logical True
-  Calculate Elemental Fields = Logical True
-  !Calculate Maxwell Stress = Logical True
-  Apply Mortar BCs = Logical false
-  !Optimize Bandwidth = False
-
-  Linear System Solver = iterative
-  Linear System Iterative Method = bicgstab
-  Linear System Symmetric = True
-  Linear System Max Iterations = 100
-  Linear System Residual Output=10
-  Linear System Preconditioning = none
-  Linear System Convergence Tolerance = 1.0e-8
-
-  NonLinear System Consistent Norm = True
+  Calculate Elemental Fields = True
+  Calculate Nodal Fields = False
 End
 
 Solver 3
@@ -158,24 +148,37 @@ Solver 3
 !  Filename = mgdyn_hypreams.dat
 End
 
-Solver 4
-  exec solver = never
-  Equation = "result output"
-  Procedure = "ResultOutputSolve" "ResultOutputSolver"
-  Output File Name = mgdyn_hypreams
-  Output Directory = wires
-  Save Geometry IDs = Logical True
-  Vtu Format = Logical True
-  discontinuous bodies = true
-End
 
 Equation 1
-  active solvers(4) = 1 2 3 4
+  active solvers(3) = 1 2 3 
 End
 
 ! At some stage the norm has changed. 
 !Solver 1:: Reference Norm = 1.45087009E-07
 
+
 ! Electromagnetic field energy
-Solver 3:: Show Norm Index = 2
-Solver 3:: Reference Norm = 8.32659888E-06
+!Solver 1 :: Reference Norm = 1.42980690E-07
+Solver 3 :: Show Norm Index = 2
+Solver 3 :: Reference Norm = 8.32659888E-06
+
+
+! Go trough the different Krylov methods provided by Hypre
+Run
+Solver 1 :: Linear System Iterative Method = "BiCGStab"
+Run
+Solver 1 :: Linear System Iterative Method = "GMRes"
+Run
+Solver 1 :: Linear System Iterative Method = "FlexGMRes"
+Run 
+Solver 1 :: Linear System Iterative Method = "LGMRes"
+Run 
+Solver 1 :: Linear System Iterative Method = "COGMRes"
+Run
+!AMS Does not really work well as a solver
+!Solver 1 :: Linear System Iterative Method = "ams"
+!Solver 1 :: Linear System Preconditioning = "none"
+!Run
+
+
+
