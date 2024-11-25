@@ -231,7 +231,6 @@ END SUBROUTINE MeshSolver_Init
   CALL Info( 'MeshSolve', ' ', Level=4 )
   CALL Info( 'MeshSolve', 'Starting assembly...', Level=4 )
 !------------------------------------------------------------------------------
-  CALL DefaultInitialize()
 !------------------------------------------------------------------------------
 
   MaxIter = GetInteger(Solver % Values,'Nonlinear System Max Iterations',Found)
@@ -240,8 +239,10 @@ END SUBROUTINE MeshSolver_Init
   ! In some rare case we may have contact and then we need nonlinear iterations.
   !----------------------------------------------------------------------------
   DO iter=1,MaxIter
+
+    CALL DefaultInitialize()
     
-    DO t=1,Solver % NumberOfActiveElements
+    DO t=1,Solver % NumberOfActiveElements      
 
       IF ( RealTime() - at0 > 1.0 ) THEN
         WRITE(Message,'(a,i3,a)' ) '   Assembly: ', INT(100.0 - 100.0 * &
