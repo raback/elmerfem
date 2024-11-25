@@ -73,15 +73,18 @@ CONTAINS
      TYPE(BasicMatrix_t), POINTER :: m
      TYPE(SParIterSolverGlobalD_t), POINTER :: p
 
+     LOGICAL :: Found
+
+
 #ifdef HAVE_HYPRE
     INTERFACE
       !! destroy the data structures (should be called when the matrix has
       !! to be updated and SolveHYPRE1 has to be called again).
-      SUBROUTINE SolveHYPRE4(hypreContainer) BIND(C,Name="solvehypre4")
+      SUBROUTINE SolveHYPRE4(hypreContainer, verbosity ) BIND(C,name="solvehypre4")
         USE, INTRINSIC :: iso_c_binding
         INTEGER(KIND=C_INTPTR_T) :: hypreContainer
+        INTEGER(KIND=c_int) :: verbosity
       END SUBROUTINE SolveHYPRE4
-
     END INTERFACE
 #endif
 #ifdef HAVE_TRILINOS
@@ -298,7 +301,8 @@ CONTAINS
 
 #ifdef HAVE_HYPRE
      IF (Matrix % Hypre /= 0) THEN
-       CALL SolveHypre4(Matrix % Hypre)
+       i = ListGetInteger( CurrentModel % Simulation,'Max Output Level',Found ) 
+       CALL SolveHypre4(Matrix % Hypre, i )
        Matrix % Hypre = 0
      END IF
 #endif
