@@ -4532,6 +4532,11 @@ CONTAINS
 
     IF( HaveAdd > 0 ) THEN
       CALL Info('BlockSolveInt','Block system has AddMatrix!',Level=10)
+      IF(InfoActive(10)) THEN
+        PRINT *,'AddMatrix range:',A % AddMatrix % NumberOfRows, MAXVAL(A % AddMatrix % Cols), &
+            SIZE(A % AddMatrix % Cols)
+      END IF
+      CALL Warn('BlocSolveInt','We do not know how to treat AddMatrix yet!')
       BlockDofs = BlockDofs + 1    
     END IF
 
