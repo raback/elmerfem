@@ -1006,16 +1006,20 @@ CONTAINS
     INTEGER, POINTER :: BlockIndex(:)
     INTEGER :: Novar
 
-    INTEGER :: bcol,brow,bi,bk,i,k,j,n
+    INTEGER :: bcol,brow,bi,bk,i,k,j,n,istat
     TYPE(Matrix_t), POINTER :: A, B
     INTEGER, ALLOCATABLE :: BlockNumbering(:), rowcount(:), offset(:)
     
-    CALL Info('BlockPickMatrixPerm','Picking domainwise block matrix from monolithic one',Level=10)
+    CALL Info('BlockPickMatrixPerm','Picking indexed  block matrix from monolithic one',Level=10)
 
     A => Solver % Matrix 
     
     n = A % NumberOfRows
-    ALLOCATE( BlockNumbering( n ), rowcount(NoVar), offset(NoVar+1) )
+    
+    ALLOCATE( BlockNumbering( n ), rowcount(NoVar), offset(NoVar+1), STAT=istat )
+    IF(istat /= 0) THEN
+      CALL Fatal('BlockPickMatrixPerm','Allocation error for BlockNumbering etc.')
+    END IF
     BlockNumbering = 0
     RowCount = 0
     offset = 0

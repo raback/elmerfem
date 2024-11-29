@@ -18584,7 +18584,11 @@ SUBROUTINE EliminateLinearRestriction( StiffMatrix, ForceVector, RestMatrix, &
   RestVector => NULL()
   IF(ASSOCIATED(RestMatrix)) RestVector => RestMatrix % RHS
 
-  CollectionVector => CollectionMatrix % RHS
+  IF(.NOT. ASSOCIATED(CollectionMatrix % Rhs) ) THEN
+    ALLOCATE(CollectionMatrix % Rhs(n) )
+    CollectionMatrix % Rhs = 0.0_dp
+  END IF    
+  CollectionVector => CollectionMatrix % RHS  
 
   ! We may optionally ask that the stiffness matrix is copied to the base.
   IF( PRESENT(CopyStiffMatrix)) THEN
@@ -18767,7 +18771,7 @@ SUBROUTINE EliminateLinearRestriction( StiffMatrix, ForceVector, RestMatrix, &
 
   ! Eliminate Lagrange Coefficients:
   ! --------------------------------
-  CALL Info(Caller,'Eliminating Largrange Coefficients',Level=15)
+  CALL Info(Caller,'Eliminating Lagrange Coefficients',Level=15)
 
   DO m=1,Tmat % NumberOfRows
     i = UseIPerm(m)
@@ -18883,7 +18887,11 @@ SUBROUTINE EliminateLinearRestriction( StiffMatrix, ForceVector, RestMatrix, &
     ALLOCATE(ExportUseDiag(SIZE(UseDiag)))
     ExportUseDiag = UseDiag
   END IF
-  
+
+  IF(PRESENT(CopyStiffMatrix)) THEN
+    IF(CopyStiffMatrix) CALL List_ToCRSMatrix(CollectionMatrix)
+  END IF
+      
   CALL Info(Caller,'Finished Eliminating Restrictions',Level=12)
 
 END SUBROUTINE EliminateLinearRestriction

@@ -380,7 +380,7 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
      HYPRE_ILUCreate(&precond);
 
      /* (Recommended) General solver options */
-     HYPRE_ILUSetType(precond, ilu_type=0); /* 0, 1, 10, 11, 20, 21, 30, 31, 40, 41, 50 */
+     HYPRE_ILUSetType(precond, ilu_type=*ILUn); /* 0, 1, 10, 11, 20, 21, 30, 31, 40, 41, 50 */
      HYPRE_ILUSetMaxIter(precond, max_iter=1);
 #if 0 
      HYPRE_ILUSetTol(precond, tol);

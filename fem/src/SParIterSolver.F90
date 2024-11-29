@@ -941,6 +941,7 @@ END SUBROUTINE ZeroSplittedMatrix
     ! Many hypre methods can be both preconditioners and solvers. 
     DO i=0,1
       j = 0
+      
       IF(i==0) THEN        
         hypre_sol = ListGetInteger( Params,'Linear System Method Hypre Index',Found )
         IF(Found ) CYCLE                    
@@ -948,8 +949,10 @@ END SUBROUTINE ZeroSplittedMatrix
         Method => IterativeMethod
       ELSE
         hypre_pre = ListGetInteger( Params,'Linear System Preconditioning Hypre Index',Found )
+
         IF(Found ) CYCLE                    
         PrecMethod = ListGetString(Params,'Linear System Preconditioning',Found)
+
         IF(.NOT. Found) THEN
           CALL Info(Caller,'"Linear System Preconditioning" not given, assuming "none"')
           PrecMethod = "none"
@@ -996,7 +999,7 @@ END SUBROUTINE ZeroSplittedMatrix
         hypre_pre = j
       END IF
     END DO
-
+    
     ! Some methods (Krylov methods) can not act as preconditioners!
     IF( ANY( hypre_pre == [6,7,8,9,10,11] ) ) THEN
       CALL Fatal(Caller,'Invalid preconditioner for Hypre: '//TRIM(PrecMethod))
