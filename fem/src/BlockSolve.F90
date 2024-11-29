@@ -1000,14 +1000,15 @@ CONTAINS
   !-------------------------------------------------------------------------------------
   !> Picks the components of a full matrix when blockindex table is given.
   !-------------------------------------------------------------------------------------
-  SUBROUTINE BlockPickMatrixPerm( Solver, BlockIndex, NoVar )
+  SUBROUTINE BlockPickMatrixPerm( Solver, BlockIndex, NoVar, DoAddMatrix )
 
     TYPE(Solver_t) :: Solver
     INTEGER, POINTER :: BlockIndex(:)
     INTEGER :: Novar
-
-    INTEGER :: bcol,brow,bi,bk,i,k,j,n,istat
-    TYPE(Matrix_t), POINTER :: A, B
+    LOGICAL :: DoAddMatrix
+        
+    INTEGER :: bcol,brow,bi,bk,i,k,j,n,istat,NoBlock
+    TYPE(Matrix_t), POINTER :: A, B, C
     INTEGER, ALLOCATABLE :: BlockNumbering(:), rowcount(:), offset(:)
     
     CALL Info('BlockPickMatrixPerm','Picking indexed  block matrix from monolithic one',Level=10)
@@ -1085,16 +1086,80 @@ CONTAINS
         CALL AddToMatrixElement(B,bi,bk,A % Values(j))
       END DO
     END DO
+
+    NoBlock = NoVar
+    IF( DoAddMatrix ) THEN
+      CALL Info('BlockPickMatrixPerm','Adding add matrix to submatrices of block system!',Level=10)
+      C => Solver % Matrix % AddMatrix 
+      NoBlock = NoVar+1 
+      
+      i = NoBlock
+      B => TotMatrix % SubMatrix(i,i) % Mat
+      n = C % NumberOfRows - A % NumberOfRows 
+      offset(i+1) = offset(i) + n
+
+      IF(ASSOCIATED(B % rhs)) THEN
+        IF(SIZE(B % Rhs) /= n) DEALLOCATE( B % rhs)
+      END IF
+      IF(.NOT. ASSOCIATED(B % rhs)) THEN
+        ALLOCATE(B % Rhs(n))
+      END IF
+      B % rhs = 0.0_dp
+
+#if 0 
+      ! Don't know what to do yet...
+      IF(ASSOCIATED(B % InvPerm)) THEN
+        IF(SIZE(B % InvPerm) /= n) DEALLOCATE( B % InvPerm)
+      END IF
+      IF(.NOT. ASSOCIATED(B % InvPerm)) THEN
+       ALLOCATE(B % InvPerm(n))
+      END IF
+      B % InvPerm = 0 
+#endif
+           
+      DO i=1,C % NumberOfRows 
+        IF(i <= A % NumberOfRows ) THEN
+          brow = BlockIndex(i)
+          bi = BlockNumbering(i)
+        ELSE
+          brow = NoBlock
+          bi = i-A % NumberOfRows
+        END IF
+                   
+        B => TotMatrix % SubMatrix(brow,brow) % Mat
+        B % Rhs(bi) = C % Rhs(i)
+        
+        !B % InvPerm(bi) = i        
+        !TotMatrix % BlockPerm(offset(brow)+bi) = i
+        
+        DO j=C % Rows(i+1)-1,C % Rows(i),-1
+          
+          k = C % Cols(j)
+
+          IF(k <= A % NumberOfRows ) THEN
+            bcol = BlockIndex(k)
+            bk = BlockNumbering(k)
+          ELSE
+            bcol = NoBlock
+            bk = k-A % NumberOfRows
+          END IF
+          
+          B => TotMatrix % SubMatrix(brow,bcol) % Mat       
+          CALL AddToMatrixElement(B,bi,bk,A % Values(j))
+        END DO
+      END DO    
+    END IF      
     
-    DO i = 1, NoVar
-      DO j = 1, NoVar
+    DO i = 1, NoBlock
+      DO j = 1, NoBlock
         B => TotMatrix % SubMatrix(i,j) % Mat
         IF( B % FORMAT == MATRIX_LIST ) THEN
+          CALL Info('BlockPickMatrixPerm','Transforming submatrix '//I2S(10*i+j)//' to CRS format',Level=12)
           CALL List_toCRSMatrix(B)
         END IF
       END DO
     END DO
-              
+
   END SUBROUTINE BlockPickMatrixPerm
 
 
@@ -4530,27 +4595,29 @@ CONTAINS
     HaveAdd = ParallelReduction(HaveAdd)
 
     IF( HaveConstraint > 0 ) THEN
-      CALL Info('BlockSolveInt','Block system has ConstraintMatrix!',Level=10)
+      i = A % ConstraintMatrix % NumberOfRows 
+      CALL Info('BlockSolveInt','Block system has ConstraintMatrix with '//I2S(i)//' rows!',Level=10)
       BlockDofs = BlockDofs + 1
     END IF
 
     IF( HaveAdd > 0 ) THEN
-      CALL Info('BlockSolveInt','Block system has AddMatrix!',Level=10)
-      IF(InfoActive(10)) THEN
-        PRINT *,'AddMatrix range:',A % AddMatrix % NumberOfRows, MAXVAL(A % AddMatrix % Cols), &
-            SIZE(A % AddMatrix % Cols)
-      END IF
-      CALL Warn('BlocSolveInt','We do not know how to treat AddMatrix yet!')
+      i = A % AddMatrix % NumberOfRows - A % NumberOfRows
+      CALL Info('BlockSolveInt','Block system has AddMatrix with '//I2S(i)//' own rows!',Level=10)
       BlockDofs = BlockDofs + 1    
     END IF
 
+    IF( HaveConstraint > 0 .AND. HaveAdd > 0 ) THEN
+      CALL Fatal('BlockSolveInt','Cannot yet do both Constraint and Add matrix!')
+    END IF
+    
     IF(.NOT. OldMatrix ) THEN
       CALL BlockInitMatrix( Solver, TotMatrix, BlockDofs, VarDofs, DoMyOwnVars )
     END IF
-      
+
+           
     NoVar = TotMatrix % NoVar
     TotMatrix % Solver => Solver
-    
+
     SaveMatrix => Solver % Matrix
     SolverMatrix => A
     Solver % Matrix => A
@@ -4566,7 +4633,7 @@ CONTAINS
     IF( .NOT. GotSlaveSolvers ) THEN
       CALL Info('BlockSolveInt','Splitting monolithic matrix into pieces',Level=10)
       IF( DoMyOwnVars ) THEN
-        CALL BlockPickMatrixPerm( Solver, BlockIndex, VarDofs )      
+        CALL BlockPickMatrixPerm( Solver, BlockIndex, VarDofs, HaveAdd > 0 )      
         IF(ASSOCIATED(BlockIndex)) THEN
           CALL BlockInitVar( Solver, TotMatrix, BlockIndex )
           DEALLOCATE(BlockIndex)
