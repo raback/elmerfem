@@ -23613,14 +23613,24 @@ CONTAINS
      TYPE(Variable_t), POINTER :: Var
      CHARACTER(:), ALLOCATABLE :: Str,MultName
      REAL(KIND=dp), ALLOCATABLE :: rsum(:)
+     LOGICAL :: IsDg
+     INTEGER, ALLOCATABLE :: DgSome(:)
+     TYPE(Mesh_t), POINTER :: Mesh
+     TYPE(Element_t), POINTER :: Element
      
      ! Should we genarete the matrix
      NeedToGenerate = Solver % MortarBCsChanged
 
+     Mesh => Solver % Mesh 
+     IsDg = Solver % DG     
+
+
+
+
      PerFlipActive = Solver % PeriodicFlipActive
      IF( PerFlipActive ) THEN
        CALL Info(Caller,'Periodic flip is active',Level=8)
-       PerFlip => Solver % Mesh % PeriodicFlip           
+       PerFlip => Mesh % PeriodicFlip           
      END IF
      
      ! Set pointers to save the initial constraint matrix
@@ -23735,7 +23745,7 @@ CONTAINS
      CALL Info(Caller,'There are '&
          //I2S(row)//' initial rows in constraint matrices',Level=10)
 
-     dim = Solver % Mesh % MeshDim              
+     dim = Mesh % MeshDim              
      dofs = Solver % Variable % DOFs
      
      Perm => Solver % Variable % Perm
@@ -23743,7 +23753,24 @@ CONTAINS
      maxperm  = MAXVAL( Perm )
      AllocationsDone = .FALSE.
      arows = Solver % Matrix % NumberOfRows
-     
+
+     ! Create a table that shows one way how continuous nodal dofs maps to
+     ! DG nodal dofs. Only one is needed since we assume reduced basis!
+     IF( IsDG ) THEN
+       ALLOCATE(DgSome(permsize))
+       DgSome = 0
+
+       DO i=1,Mesh % NumberOfBulkElements
+         Element => Mesh % Elements(i)
+         DO j=1,Element % TYPE % NumberOfNodes
+           k = Element % NodeIndexes(j)
+           k2 = Element % DGIndexes(j)
+           DgSome(k) = k2
+         END DO
+       END DO       
+     END IF
+
+       
      ComplexMatrix = Solver % Matrix % Complex
      ComplexSumRow = .FALSE.
      
@@ -23954,7 +23981,8 @@ CONTAINS
          ComplexSumRow = ( dofs == 2 .AND. ComplexMatrix .AND. .NOT. CreateSelf .AND. &
              SumThis .AND. .NOT. (ASSOCIATED( MortarBC % Diag ) .OR. HaveMortarDiag ) )
        END IF
-
+       
+       
        ! We deal with the Robin Flux cBC's here even though they would be associated 
        ! to vector or complex valued field. 
        IF( Dofs == 1 .OR. ThisIsRobin ) THEN         
@@ -23988,7 +24016,11 @@ CONTAINS
 
              kk = k             
              IF( Reorder ) THEN
-               kk = Perm(k)
+               IF(IsDG) THEN
+                 kk = Perm(DgSome(k))
+               ELSE
+                 kk = Perm(k)
+               END IF
                IF( kk == 0 ) CYCLE
              END IF
              
@@ -24022,9 +24054,10 @@ CONTAINS
              END IF
            END IF
          END IF
-         
-         DO i=1,Atmp % NumberOfRows           
 
+
+         DO i=1,Atmp % NumberOfRows                     
+           
            IF( Atmp % Rows(i) >= Atmp % Rows(i+1) ) CYCLE ! skip empty rows
 
            ! If the mortar boundary is not active at this round don't apply it
@@ -24040,10 +24073,14 @@ CONTAINS
            ELSE
              k = i
            END IF
-            
+           
            kk = k
            IF( Reorder ) THEN
-             kk = Perm(k) 
+             IF(IsDg) THEN
+               kk = Perm(DgSome(k)) 
+             ELSE
+               kk = Perm(k)
+             END IF
              IF( kk == 0 ) CYCLE
            END IF
              
@@ -24086,9 +24123,13 @@ CONTAINS
 
              IF( ABS( val ) < EpsVal * valsum ) CYCLE
              
-             IF( Reorder ) THEN
+             IF( Reorder ) THEN               
                IF( col <= permsize ) THEN
-                 col2 = Perm(col)
+                 IF(IsDg) THEN
+                   col2 = Perm(DgSome(col))
+                 ELSE
+                   col2 = Perm(col)
+                 END IF
                  IF( col2 == 0 ) CYCLE
                ELSE
                  CALL Fatal(Caller,'col index too large: '//I2S(col)//' vs '//I2S(permsize))
@@ -24159,7 +24200,11 @@ CONTAINS
            IF( CreateSelf ) THEN
              k2 = k2 + 1
              IF( AllocationsDone ) THEN
-               Btmp % Cols(k2) = Perm( Atmp % InvPerm(i) )
+               IF(IsDG) THEN
+                 Btmp % Cols(k2) = Perm( DGSome( Atmp % InvPerm(i) ) )
+               ELSE
+                 Btmp % Cols(k2) = Perm( Atmp % InvPerm(i) )
+               END IF
                Btmp % Values(k2) = MortarBC % SlaveScale * wsum
              ELSE               
                IF( SumThis) SumCount(row) = SumCount(row) + 1
@@ -24205,7 +24250,11 @@ CONTAINS
                        PRINT *,'col too large',col,permsize
                        CYCLE
                      END IF
-                     col2 = Perm(col)
+                     IF(IsDg) THEN
+                       col2 = Perm(DgSome(col))
+                     ELSE
+                       col2 = Perm(col)
+                     END IF
                    ELSE
                      col2 = col
                    END IF                     
@@ -24257,6 +24306,8 @@ CONTAINS
          
        ELSE IF( ComplexSumRow ) THEN
 
+         IF(IsDG) CALL Fatal(Caller,'DG not implemented for complex systems!')
+         
          CALL Info(Caller,'Using simplified complex summing!',Level=8)
          ComplexSumRow = .TRUE.
          
@@ -24410,6 +24461,9 @@ CONTAINS
          END DO
          
        ELSE
+
+         IF(IsDG) CALL Fatal(Caller,'DG not implemented for vector systems!')
+
          
          ! dofs > 1
          ! In case of a vector valued problem create a projector that acts on all 
