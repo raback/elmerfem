@@ -117,6 +117,8 @@ SUBROUTINE VectorHelmholtzSolver_Init0(Model,Solver,dt,Transient)
     END IF
   END IF
 
+  CALL ListAddNewLogical(SolverParams, 'Bubbles in Global System', .TRUE.)
+
   !CALL ListAddNewLogical( SolverParams,'Hcurl Basis',.TRUE.)
   IF (WithNDOFs) THEN
     CALL ListAddNewLogical(SolverParams,'Variable Output',.TRUE.)
@@ -367,7 +369,7 @@ CONTAINS
     TYPE(ValueList_t), POINTER :: BC
     REAL(KIND=dp), POINTER CONTIG:: SavedValues(:) => NULL()
     REAL(KIND=dp) :: Norm
-    INTEGER :: Active,k,n,nd,t
+    INTEGER :: Active,k,n,nd,nb,t
     LOGICAL :: InitHandles 
 !---------------------------------------------------------------------------------------------
     ! System assembly:
@@ -382,10 +384,11 @@ CONTAINS
       Element => GetActiveElement(t)
       n  = GetElementNOFNodes() 
       nd = GetElementNOFDOFs()  
+      nb = GetElementNOFBDOFs()
       
       ! Glue local element matrix and rhs vector:
       !----------------------------------------
-      CALL LocalMatrix( Element, n, nd, InitHandles )
+      CALL LocalMatrix( Element, n, nd+nb, nb, InitHandles )
     END DO
     CALL DefaultFinishBulkAssembly()
 
@@ -556,10 +559,10 @@ CONTAINS
   
 
 !-----------------------------------------------------------------------------
-  SUBROUTINE LocalMatrix( Element, n, nd, InitHandles )
+  SUBROUTINE LocalMatrix( Element, n, nd, nb, InitHandles )
 !------------------------------------------------------------------------------
     TYPE(Element_t), POINTER :: Element
-    INTEGER :: n, nd
+    INTEGER :: n, nd, nb
     LOGICAL :: InitHandles
 !------------------------------------------------------------------------------
     COMPLEX(KIND=dp) :: eps, muinv, Cond, L(3)
@@ -811,15 +814,16 @@ CONTAINS
     END IF
 
     IF( PrecMatrix ) THEN
-      IF (CurlCurlPrec) THEN
-        CALL DefaultUpdatePrec(PREC(1:nd,1:nd))
-      ELSE
-        CALL DefaultUpdatePrec(STIFF(1:nd,1:nd) + PREC(1:nd,1:nd))
+      IF (.NOT. CurlCurlPrec) THEN
+        PREC(1:nd,1:nd) = STIFF(1:nd,1:nd) + PREC(1:nd,1:nd)
       END IF
+      IF (nb > 0) CALL CondensateP(nd-nb, nb, PREC)
+      CALL DefaultUpdatePrec(PREC(1:nd,1:nd))
     END IF
     
     ! Update global matrix and rhs vector from local matrix & vector:
     !---------------------------------------------------------------    
+    IF (nb > 0) CALL CondensateP(nd-nb, nb, STIFF, FORCE)
     CALL DefaultUpdateEquations( STIFF, FORCE, Element )
 
 !------------------------------------------------------------------------------
