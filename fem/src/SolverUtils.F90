@@ -13815,7 +13815,10 @@ END FUNCTION SearchNodeL
     ALLOCATE( TempVector(Aaid % NumberOfRows) )
 
     IF( UseBulkValues ) THEN
-      SaveValues => Aaid % Values
+      IF(.NOT. ASSOCIATED(Aaid % BulkValues)) THEN
+        CALL Fatal('CalculateLoads','"BulkValues" are not associated!')
+      END IF
+      SaveValues => Aaid % Values      
       Aaid % Values => Aaid % BulkValues
       Rhs => Aaid % BulkRHS
     ELSE
