@@ -142,7 +142,38 @@ SUBROUTINE RigidMeshMapper( Model,Solver,dt,Transient )
     END IF
   END IF
   RotorAngle = ListGetCReal( CurrentModel % Simulation,'Rotor Angle',GotRotorAngle )
-  
+
+  NoNodes = Mesh % NumberOfNodes
+  ALLOCATE( NodeDone(NoNodes) )
+  NodeDone = .FALSE.
+  NodeIndex => CurrentNode
+
+
+  IF( RotorMode .AND. .NOT. Visited ) THEN
+    IF(.NOT. ListGetLogical(CurrentModel % Simulation,'Old Skew',Found ) ) THEN
+      CALL SetMeshSkew(Mesh, CurrentModel % Simulation) 
+      
+      ALLOCATE(RotorElement(Mesh % NumberOfBulkElements))
+      RotorElement = .FALSE.
+      
+      DO elem = 1,Mesh % NumberOfBulkElements      
+        Element => Mesh % Elements(elem)
+        n = GetElementNOFNodes(Element)
+        CALL GetElementNodes( Nodes, Element )
+        Coord(1) = SUM(Nodes % x(1:n)) / n
+        Coord(2) = SUM(Nodes % y(1:n)) / n
+        Coord(3) = SUM(Nodes % z(1:n)) / n
+        IF(ASSOCIATED(RotorBodies)) THEN
+          IsRotor = ANY( RotorBodies == Element % BodyId ) 
+        ELSE
+          IsRotor = (Coord(1)**2+Coord(2)**2 < RotorRad**2) 
+        END IF
+        RotorElement(elem) = IsRotor
+      END DO
+      NodeDone = .FALSE.
+    END IF
+  END IF
+    
   ! If using original mesh as a reference mesh it must be saved,
   ! otherwise the analytic mapping does not require two meshes
   !------------------------------------------------------------
@@ -167,87 +198,84 @@ SUBROUTINE RigidMeshMapper( Model,Solver,dt,Transient )
     Zorig => Znew
   END IF
 
-  NoNodes = Mesh % NumberOfNodes
-  ALLOCATE( NodeDone(NoNodes) )
-  NodeDone = .FALSE.
-  NodeIndex => CurrentNode
-
   IF( RotorMode .AND. .NOT. Visited ) THEN
-    RotorSkew = AngleCoeff * ListGetCReal(CurrentModel % Simulation,'Rotor Skew',GotSkew )
-    GotSkewFun = ListCheckPresent( CurrentModel % Simulation,'Rotor Skew Function')
-    StatorSkew = AngleCoeff * ListGetCReal(CurrentModel % Simulation,'Stator Skew',Found )
-    GotSkew = GotSkew .OR. GotSkewFun .OR. Found
-    IF( GotSkew ) THEN
-      zmax = ListGetCReal( CurrentModel % Simulation,'Rotor Skew Max Coordinate',Found ) 
-      IF(.NOT. Found) THEN
-        zmax = ListGetCReal( CurrentModel % Simulation,'Extruded Max Coordinate',Found ) 
-        IF(.NOT. Found) zmax = ParallelReduction(MAXVAL(Zorig))        
+    IF(ListGetLogical(CurrentModel % Simulation,'Old Skew',Found ) ) THEN
+      RotorSkew = AngleCoeff * ListGetCReal(CurrentModel % Simulation,'Rotor Skew',GotSkew )
+      GotSkewFun = ListCheckPresent( CurrentModel % Simulation,'Rotor Skew Function')
+      StatorSkew = AngleCoeff * ListGetCReal(CurrentModel % Simulation,'Stator Skew',Found )
+      GotSkew = GotSkew .OR. GotSkewFun .OR. Found
+      IF( GotSkew ) THEN
+        zmax = ListGetCReal( CurrentModel % Simulation,'Rotor Skew Max Coordinate',Found ) 
+        IF(.NOT. Found) THEN
+          zmax = ListGetCReal( CurrentModel % Simulation,'Extruded Max Coordinate',Found ) 
+          IF(.NOT. Found) zmax = ParallelReduction(MAXVAL(Zorig))        
+        END IF
+        IF(.NOT. Found) THEN
+          CALL Fatal(Caller,'"Rotor Skew" currently requires "Extruded Max Coordinate" to be given!')
+        END IF
+        zmin = ListGetCReal( CurrentModel % Simulation,'Rotor Skew Min Coordinate',Found ) 
+        IF(.NOT. Found) THEN
+          zmin = ListGetCReal( CurrentModel % Simulation,'Extruded Min Coordinate',Found ) 
+          IF(.NOT. Found) zmin = ParallelReduction(MINVAL(Zorig))
+        END IF
+        IF(InfoActive(20)) THEN
+          PRINT *,'RotorSkew:',RotorSkew, StatorSkew, zmin, zmax, GotSkew, GotSkewFun 
+        END IF
       END IF
-      IF(.NOT. Found) THEN
-        CALL Fatal(Caller,'"Rotor Skew" currently requires "Extruded Max Coordinate" to be given!')
-      END IF      
-      zmin = ListGetCReal( CurrentModel % Simulation,'Rotor Skew Min Coordinate',Found ) 
-      IF(.NOT. Found) THEN
-        zmin = ListGetCReal( CurrentModel % Simulation,'Extruded Min Coordinate',Found ) 
-        IF(.NOT. Found) zmin = ParallelReduction(MINVAL(Zorig))
-      END IF
-      IF(InfoActive(20)) THEN
-        PRINT *,'RotorSkew:',RotorSkew, StatorSkew, zmin, zmax, GotSkew, GotSkewFun 
-      END IF
-    END IF
-      
-    ALLOCATE(RotorElement(Mesh % NumberOfBulkElements))
-    RotorElement = .FALSE.
-    
-    DO elem = 1,Mesh % NumberOfBulkElements      
-      Element => Mesh % Elements(elem)
-      n = GetElementNOFNodes(Element)
-      
-      CALL GetElementNodes( Nodes, Element )
-      Coord(1) = SUM(Nodes % x(1:n)) / n
-      Coord(2) = SUM(Nodes % y(1:n)) / n
-      Coord(3) = SUM(Nodes % z(1:n)) / n
-      IF(ASSOCIATED(RotorBodies)) THEN
-        IsRotor = ANY( RotorBodies == Element % BodyId ) 
-      ELSE
-        IsRotor = (Coord(1)**2+Coord(2)**2 < RotorRad**2) 
-      END IF
-      
-      RotorElement(elem) = IsRotor
 
-      IF(GotSkew) THEN
-        DO Node=1,n
-          NodeIndex(1) = Element % NodeIndexes(Node)
-          NodeI = NodeIndex(1)
-          IF(.NOT. NodeDone(NodeI)) THEN
-            Coord(1) = Xorig(NodeI)
-            Coord(2) = Yorig(NodeI)
-            Coord(3) = Zorig(NodeI)
+      ALLOCATE(RotorElement(Mesh % NumberOfBulkElements))
+      RotorElement = .FALSE.
 
-            ! Skew is not constant, perform it for each node 1st if requested. 
-            zloc = (coord(3)-zmin)/(zmax-zmin)
+      DO elem = 1,Mesh % NumberOfBulkElements      
+        Element => Mesh % Elements(elem)
+        n = GetElementNOFNodes(Element)
 
-            ! By construction this must be in [0,1]
-            zloc = MAX(0.0_dp,MIN(1.0_dp,zloc))
-            
-            IF( IsRotor ) THEN
-              IF(GotSkewFun) THEN
-                alpha = AngleCoeff * ListGetFun( CurrentModel % Simulation,'Rotor Skew Function',zloc)                
+        CALL GetElementNodes( Nodes, Element )
+        Coord(1) = SUM(Nodes % x(1:n)) / n
+        Coord(2) = SUM(Nodes % y(1:n)) / n
+        Coord(3) = SUM(Nodes % z(1:n)) / n
+        IF(ASSOCIATED(RotorBodies)) THEN
+          IsRotor = ANY( RotorBodies == Element % BodyId ) 
+        ELSE
+          IsRotor = (Coord(1)**2+Coord(2)**2 < RotorRad**2) 
+        END IF
+
+        RotorElement(elem) = IsRotor
+
+        IF(GotSkew) THEN
+          DO Node=1,n
+            NodeIndex(1) = Element % NodeIndexes(Node)
+            NodeI = NodeIndex(1)
+            IF(.NOT. NodeDone(NodeI)) THEN
+              Coord(1) = Xorig(NodeI)
+              Coord(2) = Yorig(NodeI)
+              Coord(3) = Zorig(NodeI)
+
+              ! Skew is not constant, perform it for each node 1st if requested. 
+              zloc = (coord(3)-zmin)/(zmax-zmin)
+
+              ! By construction this must be in [0,1]
+              zloc = MAX(0.0_dp,MIN(1.0_dp,zloc))
+
+              IF( IsRotor ) THEN
+                IF(GotSkewFun) THEN
+                  alpha = AngleCoeff * ListGetFun( CurrentModel % Simulation,'Rotor Skew Function',zloc)                
+                ELSE
+                  alpha = (zloc-0.5_dp) * RotorSkew
+                END IF
               ELSE
-                alpha = (zloc-0.5_dp) * RotorSkew
+                alpha = (zloc-0.5_dp) * StatorSkew 
               END IF
-            ELSE
-              alpha = (zloc-0.5_dp) * StatorSkew 
+
+              Xorig(NodeI) = Coord(1)*COS(alpha) - Coord(2)*SIN(alpha)
+              Yorig(Nodei) = Coord(1)*SIN(alpha) + Coord(2)*COS(alpha)        
+              NodeDone(NodeI) = .TRUE.
             END IF
-            
-            Xorig(NodeI) = Coord(1)*COS(alpha) - Coord(2)*SIN(alpha)
-            Yorig(Nodei) = Coord(1)*SIN(alpha) + Coord(2)*COS(alpha)        
-            NodeDone(NodeI) = .TRUE.
-          END IF
-        END DO
-      END IF
-    END DO
-    NodeDone = .FALSE.
+          END DO
+        END IF
+      END DO
+      NodeDone = .FALSE.
+    END IF
   END IF
 
   

@@ -17675,6 +17675,134 @@ CONTAINS
       
   END SUBROUTINE ExtrudedDivision
 
+
+  ! Enable skew for extruded or initially 3D mesh, mainly intended for electrical
+  ! machines. This is a library routine since we may want to perform skew right
+  ! after the extrusion, if the mesh is further to be split into other elements. 
+  !-----------------------------------------------------------------------------  
+  SUBROUTINE SetMeshSkew(Mesh, Vlist )
+    TYPE(ValueList_t), POINTER :: Vlist
+    TYPE(Mesh_t), POINTER :: Mesh
+    REAL(KIND=dp) :: RotorRad, AngleCoeff, RotorSkew, StatorSkew
+    REAL(KIND=dp) :: zmin, zmax, Coord(3), zloc, alpha
+    LOGICAL :: Found, GotSkewFun, GotSkew, IsRotor
+    LOGICAL, ALLOCATABLE :: NodeDone(:)
+    INTEGER :: NoNodes, elem, n, i, j, NodeIndex(1)
+    LOGICAL :: SkewDone = .FALSE.        
+    TYPE(Element_t), POINTER :: Element
+    INTEGER, POINTER :: RotorBodies(:)
+    CHARACTER(*), PARAMETER :: Caller="SetMeshSkew"   
+
+    SAVE SkewDone
+
+    IF(SkewDone) THEN
+      CALL Info(Caller,'Skew already done!',Level=10)
+      RETURN
+    END IF
+
+    RotorBodies => ListGetIntegerArray( Vlist,'Rotor Bodies',Found )
+    IF(.NOT. ASSOCIATED(RotorBodies) ) THEN
+      RotorRad = ListGetCReal(Vlist,'Rotor Radius',Found )
+      IF(.NOT. Found) THEN
+        CALL Info(Caller,'Neither "Rotor Radius" or "Rotor Bodies" given!',Level=10)
+        RETURN
+      END IF
+    END IF
+    
+    IF( ListGetLogical( Vlist,'Rotate in Radians',Found ) ) THEN
+      CALL Info(Caller,'Using radians for skew!',Level=10)
+      AngleCoeff = 1.0_dp
+    ELSE
+      CALL Info(Caller,'Using degrees for skew!',Level=10)
+      AngleCoeff = PI / 180.0_dp
+    END IF
+
+    RotorSkew = AngleCoeff * ListGetCReal(Vlist,'Rotor Skew',GotSkew )
+    GotSkewFun = ListCheckPresent( Vlist,'Rotor Skew Function')
+    StatorSkew = AngleCoeff * ListGetCReal(Vlist,'Stator Skew',Found )
+    GotSkew = GotSkew .OR. GotSkewFun .OR. Found
+    IF(.NOT. GotSkew) THEN
+      CALL Info(Caller,'No settings for skew given!',Level=10)
+      RETURN
+    END IF
+
+    NoNodes = Mesh % NumberOfNodes
+
+    zmin = ListGetCReal( Vlist,'Rotor Skew Min Coordinate',Found ) 
+    IF(.NOT. Found) THEN
+      zmin = ListGetCReal( Vlist,'Extruded Min Coordinate',Found ) 
+    END IF
+    IF(.NOT. Found) THEN
+      zmin = MINVAL(Mesh % Nodes % z(1:NoNodes))
+      zmin = ParallelReduction(zmin,1)
+    END IF
+
+    zmax = ListGetCReal( Vlist,'Rotor Skew Max Coordinate',Found ) 
+    IF(.NOT. Found) THEN
+      zmax = ListGetCReal( Vlist,'Extruded Max Coordinate',Found ) 
+    END IF
+    IF(.NOT. Found) THEN
+      zmax = MAXVAL(Mesh % Nodes % z(1:NoNodes))
+      zmax = ParallelReduction(zmax,2)
+    END IF
+    
+    WRITE(Message,'(A,2ES12.3)') 'Coordinate range for extrusion:',zmin,zmax    
+    CALL Info(Caller,Message)
+    
+    ALLOCATE(NodeDone(NoNodes))
+    NodeDone = .FALSE.
+
+    DO elem = 1,Mesh % NumberOfBulkElements      
+      Element => Mesh % Elements(elem)
+      n = Element % TYPE % NumberOfNodes
+
+      Coord(1) = SUM(Mesh % Nodes % x(Element % NodeIndexes)) / n
+      Coord(2) = SUM(Mesh % Nodes % y(Element % NodeIndexes)) / n
+      Coord(3) = SUM(Mesh % Nodes % z(Element % NodeIndexes)) / n
+
+      IF(ASSOCIATED(RotorBodies)) THEN
+        IsRotor = ANY( RotorBodies == Element % BodyId ) 
+      ELSE
+        IsRotor = (Coord(1)**2+Coord(2)**2 < RotorRad**2) 
+      END IF
+
+      DO i=1,n
+        j = Element % NodeIndexes(i)
+        NodeIndex(1) = j
+        IF(.NOT. NodeDone(j)) THEN
+          Coord(1) = Mesh % Nodes % x(j)
+          Coord(2) = Mesh % Nodes % y(j)
+          Coord(3) = Mesh % Nodes % z(j)
+
+          ! Skew is not constant, perform it for each node 1st if requested. 
+          zloc = (coord(3)-zmin)/(zmax-zmin)
+
+          ! By construction this must be in [0,1]
+          zloc = MAX(0.0_dp,MIN(1.0_dp,zloc))
+
+          IF( IsRotor ) THEN
+            IF(GotSkewFun) THEN
+              alpha = AngleCoeff * ListGetFun( Vlist,'Rotor Skew Function',zloc)                
+            ELSE
+              alpha = (zloc-0.5_dp) * RotorSkew
+            END IF
+          ELSE
+            alpha = (zloc-0.5_dp) * StatorSkew 
+          END IF
+
+          Mesh % Nodes % x(j) = Coord(1)*COS(alpha) - Coord(2)*SIN(alpha)
+          Mesh % Nodes % y(j) = Coord(1)*SIN(alpha) + Coord(2)*COS(alpha)        
+          NodeDone(j) = .TRUE.
+        END IF
+      END DO
+    END DO
+
+    SkewDone = .TRUE.
+    
+    CALL Info(Caller,'Mesh skew done',Level=10)
+    
+  END SUBROUTINE SetMeshSkew
+    
   
 !------------------------------------------------------------------------------
 !> Given a 2D mesh extrude it to be 3D. The 3rd coordinate will always
@@ -18318,6 +18446,10 @@ CONTAINS
       CALL AppendMissingBCs(CurrentModel,j)
     END IF
 
+    IF(.NOT. ListGetLogical(CurrentModel % Simulation,'Old Skew',Found ) ) THEN
+      CALL SetMeshSkew(Mesh_out, CurrentModel % Simulation )
+    END IF
+    
     CALL PrepareMesh( CurrentModel, Mesh_out, isParallel )
     
     ExtrudedMeshName = ListGetString(CurrentModel % Simulation,'Extruded Mesh Name',Found)
@@ -18876,6 +19008,11 @@ CONTAINS
 
       DEALLOCATE(TmpBCs)
     END BLOCK
+      
+
+    IF(.NOT. ListGetLogical(CurrentModel % Simulation,'Old Skew',Found ) ) THEN
+      CALL SetMeshSkew(Mesh_out, CurrentModel % Simulation )
+    END IF
       
     
     ExtrudedMeshName = ListGetString(CurrentModel % Simulation,'Extruded Mesh Name',Found)
