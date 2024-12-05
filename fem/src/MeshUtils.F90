@@ -18446,9 +18446,7 @@ CONTAINS
       CALL AppendMissingBCs(CurrentModel,j)
     END IF
 
-    IF(.NOT. ListGetLogical(CurrentModel % Simulation,'Old Skew',Found ) ) THEN
-      CALL SetMeshSkew(Mesh_out, CurrentModel % Simulation )
-    END IF
+    CALL SetMeshSkew(Mesh_out, CurrentModel % Simulation )
     
     CALL PrepareMesh( CurrentModel, Mesh_out, isParallel )
     
@@ -19009,11 +19007,7 @@ CONTAINS
       DEALLOCATE(TmpBCs)
     END BLOCK
       
-
-    IF(.NOT. ListGetLogical(CurrentModel % Simulation,'Old Skew',Found ) ) THEN
-      CALL SetMeshSkew(Mesh_out, CurrentModel % Simulation )
-    END IF
-      
+    CALL SetMeshSkew(Mesh_out, CurrentModel % Simulation )
     
     ExtrudedMeshName = ListGetString(CurrentModel % Simulation,'Extruded Mesh Name',Found)
     IF(Found) THEN
@@ -23906,6 +23900,41 @@ CONTAINS
     END DO
     CutCorner = MinCorner
 
+    BLOCK
+      INTEGER :: DoMax
+      INTEGER, POINTER :: Inds(:)
+      REAL(KIND=dp) :: d13,d24
+    
+      DoMax = 0
+      IF(LIstGetLogical(Vlist,'Split Mesh Prisms Min',Found )) DoMax = 1
+      IF(LIstGetLogical(Vlist,'Split Mesh Prisms Max',Found )) DoMax = -1
+
+      ! Optionally cut the 3D meshes such that the shorter (longer) diagonal
+      ! is used to cut the quad faces. 
+      IF(DoMax /= 0) THEN
+        DO i=1,Mesh % NumberOfFaces
+          Face => Mesh % Faces(i)
+          IF(Face % TYPE % ElementCode /= 404) CYCLE
+          Inds => Face % NodeIndexes
+          
+          ! Compute |r1-r3|^2 
+          d13 = (x(Inds(1))-x(Inds(3)))**2 + &
+              (y(Inds(1))-y(Inds(3)))**2 + (z(Inds(1))-z(Inds(3)))**2 
+          
+          ! Compute |r2-r4|^2 
+          d24 = (x(Inds(2))-x(Inds(4)))**2 + &
+              (y(Inds(2))-y(Inds(4)))**2 + (z(Inds(2))-z(Inds(4)))**2 
+          
+          IF(DoMax * d13 < DoMax * d24) THEN
+            CutCorner(i) = MIN(Inds(1),Inds(3))
+          ELSE
+            CutCorner(i) = MIN(Inds(2),Inds(4))
+          END IF
+        END DO
+      END IF
+    END BLOCK
+          
+    
     
     DO WHILE(.TRUE.)
       CutChanges = 0
