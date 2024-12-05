@@ -514,7 +514,7 @@ SUBROUTINE VtuOutputSolver( Model,Solver,dt,TransientSimulation )
       END DO
     END IF
   END IF
-    
+  EigenVectorMode = 0
   IF( MaxModes > 0 ) THEN
     CALL Info(Caller,'Maximum number of eigen/harmonic modes: '//I2S(MaxModes),Level=7)
     Str = ListGetString( Params,'Eigen Vector Component', GotIt )
