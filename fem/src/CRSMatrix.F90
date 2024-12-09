@@ -356,11 +356,12 @@ CONTAINS
     INTEGER, POINTER :: Cols(:),Rows(:),Diag(:)
 !------------------------------------------------------------------------------
     IF(i>A % NumberOfRows) THEN
-      CALL Warn('CRS_AddToMatrixElement','Matrix element is to be added to a nonexistent position')
+      WRITE(Message,'(A,ES12.3)') 'Nonexistent row index for matrix entry:',val
+      CALL Warn('CRS_AddToMatrixElement',Message)
       CALL Warn('CRS_AddToMatrixElement','Row: '//i2s(i)//' Col: '//i2s(j))
       CALL Warn('CRS_AddToMatrixElement','Number of Matrix rows:'//i2s(A % NumberOfRows))
       CALL Warn('CRS_AddToMatrixElement','Converting CRS to list')
-      A % FORMAT=MATRIX_LIST; RETURN
+      A % FORMAT = MATRIX_LIST; RETURN
     END IF
 
     Rows   => A % Rows
@@ -380,7 +381,8 @@ CONTAINS
       ELSE
         k = CRS_Search( Rows(i+1)-Rows(i),Cols(Rows(i):Rows(i+1)-1),j )
         IF ( k==0 .AND. val/=0 ) THEN
-          CALL Warn('CRS_AddToMatrixElement','Matrix element is to be added to a nonexistent position')
+          WRITE(Message,'(A,ES12.3)') 'Nonexistent col index for matrix entry:',val
+          CALL Warn('CRS_AddToMatrixElement',Message)
           CALL Warn('CRS_AddToMatrixElement','Row: '//i2s(i)//' Col: '//i2s(j))
           CALL Warn('CRS_AddToMatrixElement','Number of Matrix rows:'//i2s(A % NumberOfRows))
           CALL Warn('CRS_AddToMatrixElement','Converting CRS to list')
