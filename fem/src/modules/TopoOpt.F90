@@ -86,7 +86,7 @@ SUBROUTINE TopoOpt( Model,Solver,dt,Transient )
   TYPE(ValueList_t), POINTER :: Params
   TYPE(Variable_t), POINTER :: pVar, uVar, aVar
   TYPE(Matrix_t), POINTER :: Fmat 
-  REAL(KIND=dp), ALLOCATABLE :: local_sol_array(:,:), local_sol(:)
+  REAL(KIND=dp), ALLOCATABLE :: local_sol_array(:,:), local_sol(:), local_act(:)
   REAL(KIND=dp), POINTER :: ce(:), dc(:), dv(:), dv0(:), bw(:), zeroset(:), xTopo(:), xPhys(:), xMult(:)
   INTEGER :: TimesVisited = 0, dim, dofs, Niter, i, j, n, m, Nelems, Nnodes, nsize, cMode
   REAL(KIND=dp) :: volFrac, penal, emin, efrac, gt, obj, val, wmin, Diff(3)
@@ -101,7 +101,7 @@ SUBROUTINE TopoOpt( Model,Solver,dt,Transient )
 
   
   SAVE :: TimesVisited, Fmat, xTopo, xPhys, xMult, Niter, PhysSolver, dim, Mesh, &
-      local_sol_array, local_sol, ce, dc, dv, dv0, bw, zeroset, wmin, FilterMethod, FilterType, &
+      local_sol_array, local_sol, local_act, ce, dc, dv, dv0, bw, zeroset, wmin, FilterMethod, FilterType, &
       gt, Nnodes, Nelems, uVar, aVar, dofs, Nodes, PdeFilter, SimpleFilter, Diff, nsize, &
       ElemPerm, Csymmetry, SolveAdj, obj
   
@@ -214,7 +214,7 @@ SUBROUTINE TopoOpt( Model,Solver,dt,Transient )
     
     ! Allocate elemental stuff
     n = Mesh % MaxElementDofs        
-    ALLOCATE(local_sol_array(dofs,n), local_sol(dofs*n))
+    ALLOCATE(local_sol_array(dofs,n), local_sol(dofs*n), local_act(dofs*n))
     
     wmin = ListGetConstReal( Params,'Sensitivity Filter Threshold', Found )
     IF(.NOT. Found) wmin = 1.0e-3
@@ -431,13 +431,19 @@ CONTAINS
     REAL(KIND=dp), POINTER :: ce(:),dc(:),dv(:)
     REAL(KIND=dp) :: obj
 
-    INTEGER :: i,j,k
+    INTEGER :: i,j,k,NoModes
     REAL(KIND=dp), ALLOCATABLE:: Stiff(:,:), Force(:)
 
     
     n = Solver % Mesh % MaxElementNodes * dofs
     ALLOCATE(Stiff(n,n), Force(n) )
+
     
+    NoModes = ListGetInteger(Params,'No Modes',Found )
+    IF(.NOT. Found ) THEN
+      NoModes = PhysSolver % Variable % NumberOfConstraintModes 
+    END IF
+
     DO i=1,Solver % NumberOfActiveElements
       Element => Mesh % Elements(Solver % ActiveElements(i))
       n = Element % TYPE % NumberOfNodes    
@@ -455,8 +461,24 @@ CONTAINS
         local_sol(1:m) = RESHAPE( local_sol_array(1:dofs,1:n), [m] )
       END IF
 
+      local_act(1:m) = MATMUL( Stiff(1:m,1:m), local_sol(1:m) )
+            
       ! Elemental energy assuming unity multiplier.
-      ce(i) = SUM( local_sol(1:m) * MATMUL( Stiff, local_sol(1:m) ) )            
+      IF(NoModes > 0 ) THEN
+        ce(i) = 0.0_dp
+        DO k=1,NoModes
+          IF(dofs == 1) THEN
+            CALL GetLocalConsmode( local_sol,UElement=Element,USolver=PhysSolver,NoMode=k) 
+          ELSE
+            CALL GetLocalConsmode( local_sol_array,UElement=Element,USolver=PhysSolver,NoMode=k) 
+            local_sol(1:m) = RESHAPE( local_sol_array(1:dofs,1:n), [m] )
+          END IF
+          ce(i) = ce(i) + SUM( local_sol(1:m) * local_act(1:m) )           
+        END DO
+      ELSE        
+        ce(i) = SUM( local_sol(1:m) * local_act(1:m) )
+        !ce(i) = SUM( local_sol(1:m) * MATMUL( Stiff, local_sol(1:m) ) )            
+      END IF
     END DO
 
     !PRINT *,'Objective:',obj,emin,efrac,penal,SUM(x),SUM(ce)
