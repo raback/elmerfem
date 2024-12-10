@@ -16679,11 +16679,12 @@ SUBROUTINE ConstraintModesDriver( A, x, b, Solver, PreSolve, ThisMode, LinSysMod
 
     IF(NoModes <= 0) RETURN    
     Params => Solver % Values
-    
+
     ! We can also have a combination of standard analysis + constraint modes
     ! analysis of the frozen state. Then the default solution slot should really do
     ! the standard analysis.
     IF( ListGetLogical( Params,'Constraint Modes Analysis Frozen',Found ) ) THEN
+      Solver % Variable % FrozenMode = .TRUE.
       RETURN
     END IF
 
@@ -18679,6 +18680,10 @@ SUBROUTINE EliminateLinearRestriction( StiffMatrix, ForceVector, RestMatrix, &
     Vals => RestMatrix % Values
   END IF
 
+  ! The rest is done in List Matrix format so move to that in case not yet!
+  IF( CollectionMatrix % FORMAT /= MATRIX_LIST ) THEN
+    CALL List_ToListMatrix(CollectionMatrix)
+  END IF
 
   ! Replace elimination equations by the constraints (could done be as a postprocessing
   ! step, if eq's totally eliminated from linsys.)
@@ -18932,7 +18937,7 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, &
       SkipConstraints, ResidualMode
   INTEGER, POINTER :: UseIPerm(:), UsePerm(:)
   REAL(KIND=dp), POINTER :: UseDiag(:) 
-  LOGICAL  :: Parallel, UseTreeGauge, NeedMassDampValues, DoOwnScaling 
+  LOGICAL  :: Parallel, UseTreeGauge, NeedMassDampValues, DoOwnScaling
   LOGICAL, ALLOCATABLE :: TrueDof(:)
   INTEGER, ALLOCATABLE :: Iperm(:)
   REAL(KIND=dp) :: t0,rt0,st,rst
@@ -18971,6 +18976,8 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, &
   AddVector => NULL()
   IF(ASSOCIATED(AddMatrix)) AddVector => AddMatrix % RHS
 
+  EliminateConstraints = ListGetLogical( Params, 'Eliminate Linear Constraints', Found)
+  
   NumberOfRows = StiffMatrix % NumberOfRows
   
   CollectionMatrix => StiffMatrix % CollectionMatrix
@@ -18978,14 +18985,15 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, &
   IF(.NOT.Found) THEN
     Refactorize = .NOT. ( ResidualMode .AND. nIter > 1) 
   END IF
-  
+
   IF(ASSOCIATED(CollectionMatrix)) THEN
-    IF(Refactorize.AND..NOT.NotExplicit) THEN
+    IF(Refactorize .AND. .NOT.NotExplicit) THEN
       CALL Info( Caller,'Freeing previous collection matrix structures',Level=10)
       CALL FreeMatrix(CollectionMatrix)
       CollectionMatrix => NULL()
+      CALL Info( Caller,'Refactoring requested, creating fully new matrix',Level=10)
     ELSE
-      CALL Info( Caller,'Keeping previous collection matrix structures',Level=10)
+      CALL Info( Caller,'Trying to keep previous collection matrix structures',Level=10)
     END IF
   END IF
 
@@ -19005,7 +19013,6 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, &
   
   NumberOfRows = StiffMatrix % NumberOfRows
   IF(ASSOCIATED(AddMatrix)) NumberOfRows = MAX(NumberOfRows,AddMatrix % NumberOfRows)
-  EliminateConstraints = ListGetLogical( Params, 'Eliminate Linear Constraints', Found)
   IF(ASSOCIATED(RestMatrix)) THEN
     IF(.NOT.EliminateConstraints) NumberOfRows = NumberOFRows + RestMatrix % NumberOfRows
   END IF
@@ -19314,8 +19321,8 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, &
   END IF
   
 
-  CALL Info(Caller,'Reverting CollectionMatrix back to CRS matrix',Level=10)
   IF(CollectionMatrix % FORMAT==MATRIX_LIST) THEN
+    CALL Info(Caller,'Reverting CollectionMatrix back to CRS matrix',Level=10)
     CALL List_toCRSMatrix(CollectionMatrix)
   END IF
     
@@ -19512,10 +19519,6 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, &
       IF(ASSOCIATED(RestMatrix) .AND. EliminateConstraints) THEN        
         ! Compute eliminated l-coefficient values:
         ! ---------------------------------------
-        IF( ResidualMode ) THEN
-          CALL Fatal(Caller,'Elimination not possible with ResidualMode!')
-        END IF
-        
         MultiplierValues = 0.0_dp
         DO i=1,RestMatrix % NumberOfRows
           scl = 1._dp / UseDiag(i)
