@@ -1160,6 +1160,32 @@ CONTAINS
       END DO
     END DO
 
+    IF( ASSOCIATED(A % PrecValues) ) THEN
+      CALL Info('BlockPickMatrixPerm','Creating preconditioning matrix from monolithic one!')      
+      DO i = 1, NoVar
+        DO j = 1, NoVar
+          CALL CRS_CopyMatrixTopology( TotMatrix % Submatrix(i,j) % Mat, &
+              TotMatrix % Submatrix(i,j) % PrecMat )   
+        END DO
+      END DO
+      
+      DO i=1,A % NumberOfRows         
+        brow = BlockIndex(i)
+        bi = BlockNumbering(i)
+        
+        DO j=A % Rows(i+1)-1,A % Rows(i),-1          
+          k = A % Cols(j)
+          
+          bcol = BlockIndex(k)
+          bk = BlockNumbering(k)
+          
+          B => TotMatrix % SubMatrix(brow,bcol) % PrecMat       
+          CALL AddToMatrixElement(B,bi,bk,A % PrecValues(j))
+        END DO
+      END DO
+    END IF
+      
+    
   END SUBROUTINE BlockPickMatrixPerm
 
 
