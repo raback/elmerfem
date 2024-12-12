@@ -299,9 +299,9 @@ CONTAINS
     Params => Solver % Values
     IsComplex = ListGetLogical( Params,'Linear System Complex',Found)
     IF( IsComplex ) THEN
-      CALL Info(Caller,'Assuming block matrix to be complex!',Level=8)
+      CALL Info(Caller,'Assuming block matrix to be complex!',Level=10)
     ELSE
-      CALL Info(Caller,'Assuming block matrix to be real!',Level=20)
+      CALL Info(Caller,'Assuming block matrix to be real!',Level=10)
     END IF
         
     ALLOCATE(Solver % BlockMatrix)
@@ -554,12 +554,7 @@ CONTAINS
           m = SIZE(Solver % Variable % Perm) 
           ALLOCATE(VarPerm(m))
           VarPerm = 0
-#if 0
-          ! This works only when dofs follow each other systematically. 
-          WHERE( BlockIndex == i )
-            VarPerm = Solver % Variable % Perm - BlockMatrix % Offset(i)
-          END WHERE          
-#else
+
           k = 0
           DO j=1,SIZE(Solver % Variable % Perm)
             IF(BlockIndex(j) == i) THEN
@@ -567,8 +562,6 @@ CONTAINS
               VarPerm(j) = k
             END IF
           END DO
-#endif
-          IF( ANY( VarPerm < 0) ) CALL Fatal('BlockInitVar','Negative Perm!')
           
           CALL VariableAdd( Mesh % Variables,Mesh,PSolver,VarName,1,Vals,&
               Output = .FALSE., Perm = VarPerm )                    
@@ -944,15 +937,18 @@ CONTAINS
     INTEGER, POINTER :: BlockIndex(:)
     INTEGER :: Novar
     
-    INTEGER :: i,j,n,nn,ne,nf,nb,ais,vis
-    INTEGER :: vcount,acount
+    INTEGER :: i,j,n,nn,ne,nf,nb,ais,vis,pis,dofs
+    INTEGER :: vcount,acount,pcount
     TYPE(Mesh_t), POINTER :: Mesh
-    LOGICAL :: Found
+    LOGICAL :: Found, SplitComplex, SplitPiola
     INTEGER, POINTER :: Perm(:)
     
     
     CALL Info('BlockPickAV','Picking block matrix for V and A dofs',Level=10)
 
+
+    SplitPiola = ListGetLogical( Solver % Values,'Block Split Piola',Found ) 
+    
     Mesh => Solver % Mesh
     nn = Mesh % NumberOfNodes
     ne = Mesh % NumberOfEdges
@@ -962,14 +958,21 @@ CONTAINS
     ! true/false flags whether dof type exists
     ais = 0
     vis = 0
+    pis = 0
 
     ! counter of types of dofs
     vcount = 0
     acount = 0
+    pcount = 0
     
     Perm => Solver % Variable % Perm 
     n = SIZE( Perm ) 
     BlockIndex = 0
+    
+    dofs = Solver % Variable % Dofs
+    IF(dofs > 2) THEN
+      CALL Fatal('BlockPickAV','Only implemented for 1 or 2 dofs: '//I2S(dofs))
+    END IF
     
     DO i=1,n
       j = Perm(i)
@@ -978,23 +981,65 @@ CONTAINS
       IF( i <= nn ) THEN
         vis = 1
         vcount = vcount + 1
-        BlockIndex(j) = 1
-      ELSE
-        ais = 1
-        acount = acount + 1
-        BlockIndex(j) = vis + 1
+        BlockIndex(dofs*j) = 1
+      ELSE 
+        IF(SplitPiola .AND. i > nn+ne ) THEN
+          pis = 1
+          pcount = pcount + 1
+          BlockIndex(dofs*j) = vis + ais + 1
+        ELSE          
+          ais = 1
+          acount = acount + 1
+          BlockIndex(dofs*j) = vis + 1
+        END IF
       END IF
     END DO
 
     IF( vcount > 0 ) CALL Info('BlockPickAV','Number of nodal dofs: '//I2S(vcount),Level=8)
     IF( acount > 0 ) CALL Info('BlockPickAV','Number of edge dofs: '//I2S(acount),Level=8)
+    IF( pcount > 0 ) CALL Info('BlockPickAV','Number of piola edge dofs: '//I2S(pcount),Level=8)
        
-    NoVar = vis + ais 
+    NoVar = vis + ais + pis
 
+    IF(dofs > 1) THEN
+      SplitComplex = ListGetLogical( Solver % Values,'Block Split Complex',Found ) 
+      IF(SplitComplex) THEN
+        BlockIndex = 2 * BlockIndex
+        BlockIndex(1::2) = BlockIndex(2::2)-1
+        NoVar = 2*NoVar
+      ELSE
+        BlockIndex(1::2) = BlockIndex(2::2)
+      END IF
+    END IF
+    
     CALL Info('BlockPickAV','Found dofs related to '//I2S(NoVar)//' groups',Level=6)
     
   END SUBROUTINE BlockPickAV
 
+
+  !-------------------------------------------------------------------------------------
+  !> Splits complex matrix into Re and Im parts.
+  !-------------------------------------------------------------------------------------
+  SUBROUTINE BlockPickReIm( Solver, BlockIndex, NoVar )
+    
+    TYPE(Solver_t), POINTER :: Solver
+    INTEGER, POINTER :: BlockIndex(:)
+    INTEGER :: Novar
+
+    INTEGER :: dofs
+        
+    CALL Info('BlockPickReIm','Picking block matrix for Re and Im dofs',Level=10)
+
+    dofs = Solver % Variable % Dofs
+    IF(MODULO(dofs,2) /= 0) THEN
+      CALL Fatal('BlockPickReIm','Cannot pick from odd number of dofs: '//I2S(dofs))
+    END IF
+    
+    NoVar = 2
+    BlockIndex(1::2) = 1
+    BlockIndex(2::2) = 2
+    
+  END SUBROUTINE BlockPickReIm
   
 
   !-------------------------------------------------------------------------------------
@@ -1162,11 +1207,12 @@ CONTAINS
 
     IF( ASSOCIATED(A % PrecValues) ) THEN
       CALL Info('BlockPickMatrixPerm','Creating preconditioning matrix from monolithic one!')      
+
+      ! Note that only diagonal prec matrices are created since only they are used
+      ! to solve the actual block equations. 
       DO i = 1, NoVar
-        DO j = 1, NoVar
-          CALL CRS_CopyMatrixTopology( TotMatrix % Submatrix(i,j) % Mat, &
-              TotMatrix % Submatrix(i,j) % PrecMat )   
-        END DO
+        CALL CRS_CopyMatrixTopology( TotMatrix % Submatrix(i,i) % Mat, &
+            TotMatrix % Submatrix(i,i) % PrecMat )   
       END DO
       
       DO i=1,A % NumberOfRows         
@@ -1177,10 +1223,12 @@ CONTAINS
           k = A % Cols(j)
           
           bcol = BlockIndex(k)
-          bk = BlockNumbering(k)
           
-          B => TotMatrix % SubMatrix(brow,bcol) % PrecMat       
-          CALL AddToMatrixElement(B,bi,bk,A % PrecValues(j))
+          IF(bcol == brow) THEN
+            bk = BlockNumbering(k)          
+            B => TotMatrix % SubMatrix(brow,bcol) % PrecMat       
+            CALL AddToMatrixElement(B,bi,bk,A % PrecValues(j))
+          END IF
         END DO
       END DO
     END IF
@@ -1972,7 +2020,7 @@ CONTAINS
 
     INTEGER :: i, RowVar, ColVar, CopyVar
     CHARACTER(:), ALLOCATABLE :: str
-    REAL(KIND=dp) :: Coeff
+    REAL(KIND=dp) :: Coeff, Coeff0
     LOGICAL :: GotIt, GotIt2, DoIt
     INTEGER, POINTER :: VarPerm(:)
     TYPE(ValueList_t), POINTER :: Params
@@ -2026,16 +2074,22 @@ CONTAINS
         GotIt = ListGetLogical( Params,'Block Split Complex', GotIt )  
         Coeff = 1.0_dp
       END IF     
+      Coeff0 = Coeff
+      
       
       IF( GotIt ) THEN
-        IF( NoVar /= 2 .AND. NoVar /= 4 ) THEN
-          CALL Fatal('BlockPrecMatrix','Assuming 2 or 4 blocks for the complex preconditioner!')
+        IF( MODULO(NoVar,2) /= 0) THEN
+          CALL Fatal('BlockPrecMatrix','Assuming even number of blocks for the complex preconditioner!')
         END IF
 
         CALL Info('BlockPrecMatrix','Creating preconditioning matrix from block sums',Level=8)       
-        CALL CRS_CopyMatrixTopology( TotMatrix % Submatrix(RowVar,RowVar) % Mat, &
-            TotMatrix % Submatrix(RowVar,RowVar) % PrecMat )   
+
         Amat => TotMatrix % Submatrix(RowVar,RowVar) % PrecMat        
+        IF(Amat % NumberOfRows == 0 ) THEN
+          CALL CRS_CopyMatrixTopology( TotMatrix % Submatrix(RowVar,RowVar) % Mat, &
+              TotMatrix % Submatrix(RowVar,RowVar) % PrecMat )
+          Amat => TotMatrix % Submatrix(RowVar,RowVar) % PrecMat        
+        END IF
         IF( ASSOCIATED( TotMatrix % Submatrix(RowVar,RowVar) % Mat % PrecValues ) ) THEN
           AMat % Values = TotMatrix % Submatrix(RowVar,RowVar) % Mat % PrecValues                
           DEALLOCATE( TotMatrix % Submatrix(RowVar,RowVar) % Mat % PrecValues )
@@ -2043,14 +2097,15 @@ CONTAINS
           AMat % Values = TotMatrix % Submatrix(RowVar,RowVar) % Mat % Values                
         END IF
           
-        IF( RowVar == 1 .OR. RowVar == 3 ) THEN
+        IF( MODULO(RowVar,2) == 1 ) THEN
           ColVar = RowVar + 1
+          Coeff = Coeff0
         ELSE
           ColVar = RowVar - 1
-          Coeff = -Coeff
+          Coeff = -Coeff0
         END IF
         IF( SIZE( Amat % Values ) /= SIZE( TotMatrix % Submatrix(RowVar,ColVar) % Mat % Values ) ) THEN
-          CALL Fatal('BlockPrecMatrix','Mismatch in matrix size!')
+          CALL Fatal('BlockPrecMatrix','Mismatch in matrix size for block: '//I2S(10*RowVar+ColVar))
         END IF
         
         AMat % Values = Amat % Values + &
@@ -4501,7 +4556,7 @@ CONTAINS
     TYPE(Variable_t), POINTER :: Var
     INTEGER :: i,j,k,l,n,nd,NonLinIter,tests,NoTests,iter
     LOGICAL :: GotIt, GotIt2, BlockPrec, BlockAV, &
-        BlockHdiv, BlockHcurl, BlockHorVer, BlockCart, BlockNodal, BlockDomain, &
+        BlockHdiv, BlockReIm, BlockHcurl, BlockHorVer, BlockCart, BlockNodal, BlockDomain, &
         BlockDummy, BlockComplex, SkipPrec
     INTEGER :: ColVar, RowVar, NoVar, BlockDofs, VarDofs
     
@@ -4558,6 +4613,7 @@ CONTAINS
     BlockAV = ListGetLogical( Params,'Block A-V System', GotIt)
     BlockHcurl = ListGetLogical( Params,'Block Quadratic Hcurl System', GotIt)   
     BlockHdiv = ListGetLogical( Params,'Block Hdiv system',GotIt)
+    BlockReIm = ListGetLogical( Params,'Block Re-Im system',GotIt)
     BlockNodal = ListGetLogical( Params,'Block Nodal System', GotIt)
     BlockHorVer = ListGetLogical( Params,'Block Hor-Ver System', GotIt)
     BlockCart = ListGetLogical( Params,'Block Cartesian System', GotIt)
@@ -4570,8 +4626,8 @@ CONTAINS
 
     DoMyOwnVars = .FALSE.
     
-    IF( BlockDomain .OR. BlockHdiv .OR. BlockHcurl .OR. BlockAV .OR. BlockHorVer .OR. &
-        BlockCart .OR. BlockNodal ) THEN
+    IF( BlockDomain .OR. BlockHdiv .OR. BlockReIm .OR. BlockHcurl .OR. &
+        BlockAV .OR. BlockHorVer .OR. BlockCart .OR. BlockNodal ) THEN
       ! These take monolithic splitting and only return the "BlockIndex" which tells to which
       ! block each dof belongs to. Then the same routine can split the matrices for all. 
       !-----------------------------------------------------------------------------------------------
@@ -4585,6 +4641,8 @@ CONTAINS
         CALL BlockPickDofsPhysical( PSolver, BlockIndex, BlockDofs )  
       ELSE IF( BlockHdiv ) THEN
         CALL BlockPickHdiv( PSolver, BlockIndex, BlockDofs )  
+      ELSE IF( BlockReIm ) THEN
+        CALL BlockPickReIm( PSolver, BlockIndex, BlockDofs )  
       ELSE IF( BlockHCurl ) THEN
         CALL BlockPickMatrixHcurl( PSolver, BlockDofs, BlockComplex, BlockIndex )
       ELSE IF( BlockAV ) THEN

@@ -2280,6 +2280,10 @@ SUBROUTINE SolveHypre(Matrix, XVec, RHSVec, Solver, ParallelInfo, SplittedMatrix
     END IF
 
     IF( DoAMS ) THEN
+      IF(Matrix % NumberOfRows > Solver % Mesh % NumberOfEdges ) THEN
+        CALL Fatal(Caller,'More unknowns that edges, current Hypre AMS can not be used!')
+      END IF
+
       CALL PrepareHypreAMS() 
       nnd = Solver % Mesh % NumberOfNodes      
       CALL CreateHYPREAMS( Matrix % NumberOfRows, Rows, Cols, Vals, &
