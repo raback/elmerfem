@@ -1055,6 +1055,8 @@ CONTAINS
     INTEGER :: bcol,brow,bi,bk,i,k,j,n,istat,NoBlock
     TYPE(Matrix_t), POINTER :: A, B, C
     INTEGER, ALLOCATABLE :: BlockNumbering(:), rowcount(:), offset(:)
+    LOGICAL :: SplitComplex, Found
+    REAL(KIND=dp) :: Coeff, Coeff0
     
     CALL Info('BlockPickMatrixPerm','Picking indexed  block matrix from monolithic one',Level=10)
 
@@ -1131,6 +1133,8 @@ CONTAINS
         CALL AddToMatrixElement(B,bi,bk,A % Values(j))
       END DO
     END DO
+
+
 
     NoBlock = NoVar
     IF( DoAddMatrix ) THEN
@@ -1214,7 +1218,18 @@ CONTAINS
         CALL CRS_CopyMatrixTopology( TotMatrix % Submatrix(i,i) % Mat, &
             TotMatrix % Submatrix(i,i) % PrecMat )   
       END DO
-      
+
+      ! If we use ReIm splitting then we need to carry the off-diagonal prec values too,
+      ! since they will be later added to the diagonal. 
+      SplitComplex = ListGetLogical( Solver % Values,'Block Split Complex',Found ) 
+      IF( SplitComplex ) THEN      
+        IF( MODULO(NoVar,2) /= 0) THEN
+          CALL Fatal('BlockPickMatrixPerm','Requiring even number of blocks for the complex preconditioner!')
+        END IF      
+        Coeff0 = ListGetCReal( Solver % Values,'Prec Matrix Complex Coeff',Found)
+        IF(.NOT. Found) Coeff0 = 1.0_dp
+      END IF
+        
       DO i=1,A % NumberOfRows         
         brow = BlockIndex(i)
         bi = BlockNumbering(i)
@@ -1223,11 +1238,19 @@ CONTAINS
           k = A % Cols(j)
           
           bcol = BlockIndex(k)
-          
-          IF(bcol == brow) THEN
-            bk = BlockNumbering(k)          
-            B => TotMatrix % SubMatrix(brow,bcol) % PrecMat       
+          bk = BlockNumbering(k)          
+                      
+          IF(bcol == brow ) THEN
+            B => TotMatrix % SubMatrix(brow,brow) % PrecMat       
             CALL AddToMatrixElement(B,bi,bk,A % PrecValues(j))
+          ELSE IF( SplitComplex .AND. ABS(bcol-brow)==1) THEN
+            IF(bcol == brow+1) THEN
+              Coeff = Coeff0
+            ELSE
+              Coeff = -Coeff0
+            END IF              
+            B => TotMatrix % SubMatrix(brow,brow) % PrecMat       
+            CALL AddToMatrixElement(B,bi,bk,Coeff*A % PrecValues(j))
           END IF
         END DO
       END DO
@@ -2075,9 +2098,15 @@ CONTAINS
         Coeff = 1.0_dp
       END IF     
       Coeff0 = Coeff
-      
-      
+            
       IF( GotIt ) THEN
+        IF(ASSOCIATED(Solver % Matrix % PrecValues) ) THEN
+          CALL Info('BlockPermMatrix','Skipping adding off-diagonal prec values!')
+          GotIt = .FALSE.
+        END IF
+      END IF
+        
+      IF(GotIt) THEN
         IF( MODULO(NoVar,2) /= 0) THEN
           CALL Fatal('BlockPrecMatrix','Assuming even number of blocks for the complex preconditioner!')
         END IF
