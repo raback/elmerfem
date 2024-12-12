@@ -503,7 +503,7 @@ CONTAINS
     REAL(KIND=dp) :: g
 
     REAL(KIND=dp), ALLOCATABLE :: xnew(:)
-    REAL(KIND=dp) :: Vi, l1, l2, lmid, move, err, tol, V0
+    REAL(KIND=dp) :: Vi, l1, l2, lmid, move, err, tol, V0, damp
     INTEGER :: k
     LOGICAL :: Visited = .FALSE.
 
@@ -518,6 +518,9 @@ CONTAINS
     
     tol = ListGetCReal(Params,'Bisection search tolerance',Found )
     IF(.NOT. Found) tol = 1.0e-6
+
+    damp = ListGetCReal(Params,'Bisection search damping exponent',Found )
+    IF(.NOT. Found) damp = 0.5_dp
       
     ! Desired total volume
     V0 = volFrac * SUM(dv)
@@ -531,7 +534,7 @@ CONTAINS
       
       ! Note: xnew in [0,1]
       ! Suggested new density
-      xnew = x*SQRT(-dc/(dv*lmid))
+      xnew = x*(MAX(1.0e-10,-dc/(dv*lmid)))**damp
 
       ! Regulators and limiters
       xnew = MAX(0.0_dp,MAX(x-move,MIN(1.0_dp,MIN(x+move,xnew))))
@@ -547,11 +550,11 @@ CONTAINS
       END IF
       
       err = (l2-l1)/(l1+l2)
-      IF( err < tol ) EXIT      
-
       IF( InfoActive(20)) THEN
         PRINT *,'Bisection:',k,Vi,l1,l2,err
       END IF
+
+      IF( err < tol ) EXIT      
     END DO
 
     x = xnew 
