@@ -23863,6 +23863,11 @@ CONTAINS
       CALL Fatal(Caller,'Not implemented yet for pyramids and hexahedrons!')
     END IF
     
+    IF(Mesh % MeshDim == 3 .AND. TypeCnt(7) == 0) THEN
+      CALL Warn(Caller,'No wedges exist, doing nothing!')
+      RETURN
+    END IF
+    
     CALL ResetTimer(Caller)
 
     Parallel = ( ParEnv % PEs > 1 ) .AND. (.NOT. Mesh % SingleMesh )
