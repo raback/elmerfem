@@ -195,7 +195,8 @@
        DO i=1,2
          DO j=1,2
            IF (ZeroLevels.GT.0) send(1:ZeroLevels)=ZeroNodes(1:ZeroLevels,i,j)
-           CALL MPI_AllGatherv(send,ZeroLevels,MPI_DOUBLE,recv,pZeroLevels,disps,MPI_DOUBLE,ELMER_COMM_WORLD, ierr)
+           CALL MPI_AllGatherv(send,ZeroLevels,MPI_DOUBLE_PRECISION,recv,&
+               pZeroLevels,disps,MPI_DOUBLE_PRECISION,ELMER_COMM_WORLD, ierr)
            recZeroNodes(1:recZeroLevels,i,j)=recv(1:recZeroLevels)
          END DO
        END DO
