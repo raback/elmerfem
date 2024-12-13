@@ -15011,7 +15011,6 @@ END FUNCTION SearchNodeL
      END IF
    END IF
 
-
  CONTAINS
 
 
@@ -18945,10 +18944,13 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, &
   TYPE(ValueList_t), POINTER :: Params
   CHARACTER(*), PARAMETER :: Caller = 'SolveWithLinearRestriction'
 
+  TYPE(ParEnv_t), POINTER :: ParEnvSave
+
   SAVE MultiplierValues, SolverPointer
   
 !------------------------------------------------------------------------------
   CALL Info( Caller, ' ', Level=12 )
+  ParEnvSave => ParEnv
 
   SolverPointer => Solver  
   Params => Solver % Values
@@ -19003,7 +19005,7 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, &
   ELSE
     DEALLOCATE(CollectionMatrix % RHS)
     CollectionMatrix % Values = 0.0_dp
-    
+
     IF(NeedMassDampValues) THEN
       IF(ASSOCIATED(CollectionMatrix % MassValues)) CollectionMatrix % MassValues = 0.0_dp
       IF(ASSOCIATED(CollectionMatrix % DampValues)) CollectionMatrix % DampValues = 0.0_dp
@@ -19320,7 +19322,6 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, &
     END IF
   END IF
   
-
   IF(CollectionMatrix % FORMAT==MATRIX_LIST) THEN
     CALL Info(Caller,'Reverting CollectionMatrix back to CRS matrix',Level=10)
     CALL List_toCRSMatrix(CollectionMatrix)
@@ -19567,13 +19568,13 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, &
       CALL ComputeChange(Solver,.FALSE.,StiffMatrix % NumberOfRows,Matrix=StiffMatrix,Rhs=ForceVector)
     END IF
         
-    StiffMatrix % CollectionMatrix => CollectionMatrix
     DEALLOCATE(CollectionSolution)
     CollectionMatrix % ConstraintMatrix => NULL()
+    StiffMatrix % CollectionMatrix => CollectionMatrix
 
+    ParEnv => ParEnvSave
     
     CALL Info( Caller, 'All done', Level=10 )
-
 CONTAINS
 
 

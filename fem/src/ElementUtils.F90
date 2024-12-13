@@ -177,6 +177,7 @@ CONTAINS
      IF(ASSOCIATED(Matrix % ParallelInfo)) THEN
        IF(ASSOCIATED(Matrix % ParallelInfo % GlobalDOFs)) DEALLOCATE(Matrix % ParallelInfo % GlobalDOFs)
        IF(ASSOCIATED(Matrix % ParallelInfo % GInterface)) DEALLOCATE(Matrix % ParallelInfo % GInterface)
+       IF(ASSOCIATED(Matrix % ParallelInfo % Gorder)) DEALLOCATE(Matrix % ParallelInfo % GOrder)
  
        IF(ASSOCIATED(Matrix % ParallelInfo % NeighbourList)) THEN
          DO i=1,SIZE(Matrix % ParallelInfo % NeighbourList)
@@ -185,10 +186,27 @@ CONTAINS
          END DO
          DEALLOCATE(Matrix % ParallelInfo % NeighbourList)
        END IF
-       IF(ASSOCIATED(Matrix % ParallelInfo % Gorder)) DEALLOCATE(Matrix % ParallelInfo % GOrder)
 
+       IF(ASSOCIATED(Matrix % ParallelInfo % FaceNeighbourList)) THEN
+         DO i=1,SIZE(Matrix % ParallelInfo % FaceNeighbourList)
+           IF (ASSOCIATED(Matrix % ParallelInfo % FaceNeighbourList(i) % Neighbours)) &
+             DEALLOCATE(Matrix % ParallelInfo % FaceNeighbourList(i) % Neighbours)
+         END DO
+         DEALLOCATE(Matrix % ParallelInfo % FaceNeighbourList)
+       END IF
+       IF(ASSOCIATED(Matrix % ParallelInfo % FaceInterface)) DEALLOCATE(Matrix % ParallelInfo % FaceInterface)
+
+       IF(ASSOCIATED(Matrix % ParallelInfo % EdgeNeighbourList)) THEN
+         DO i=1,SIZE(Matrix % ParallelInfo % EdgeNeighbourList)
+           IF (ASSOCIATED(Matrix % ParallelInfo % EdgeNeighbourList(i) % Neighbours)) &
+             DEALLOCATE(Matrix % ParallelInfo % EdgeNeighbourList(i) % Neighbours)
+         END DO
+         DEALLOCATE(Matrix % ParallelInfo % EdgeNeighbourList)
+       END IF
+       IF(ASSOCIATED(Matrix % ParallelInfo % EdgeInterface)) DEALLOCATE(Matrix % ParallelInfo % EdgeInterface)
        DEALLOCATE(Matrix % ParallelInfo)
      END IF
+         
 
      p=>Matrix % ParMatrix
      IF(ASSOCIATED(p)) THEN

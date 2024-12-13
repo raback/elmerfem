@@ -166,9 +166,10 @@ CONTAINS
           END IF
        END DO
 
+       ALLOCATE( Matrix % ParallelInfo )
+
        IF ( .NOT. Matrix % DGMatrix ) THEN
          n = Matrix % NumberOfRows
-         ALLOCATE( Matrix % ParallelInfo )
          ALLOCATE( Matrix % ParallelInfo % NeighbourList(n) )
          CALL AllocateVector( Matrix % ParallelInfo % GInterface, n)
          CALL AllocateVector( Matrix % ParallelInfo % GlobalDOFs, n)
@@ -511,10 +512,7 @@ CONTAINS
        ELSE
 
          MeshPI => Solver % Mesh % ParallelInfo
-
-         ALLOCATE( Matrix % ParallelInfo )
          MatrixPI => Matrix % ParallelInfo
-
 #if 0
          n = 0
          DO i=1,Mesh % NumberOfBulkElements
@@ -536,9 +534,8 @@ CONTAINS
          IF( DGReduced ) THEN
            BLOCK
              INTEGER, POINTER :: DgMap(:), DgMaster(:), DgSlave(:)
-             LOGICAL :: GotDgMap, GotMaster, GotSlave
              INTEGER :: group0, group
-             LOGICAL, ALLOCATABLE :: Tagged(:)
+             LOGICAL :: GotDgMap, GotMaster, GotSlave
 
              DgMap => ListGetIntegerArray( Solver % Values,'DG Reduced Basis Mapping',GotDgMap )
              DgMaster => ListGetIntegerArray( Solver % Values,'DG Reduced Basis Master Bodies',GotMaster )
@@ -633,10 +630,11 @@ CONTAINS
 
                 MeshN => MeshPI % NeighbourList(L)
                 MtrxN => MatrixPI % NeighbourList(K)
-
                 MatrixPI % GInterface(k) = .TRUE.
 
+                IF( ASSOCIATED(MtrxN % Neighbours) ) DEALLOCATE(MtrxN % Neighbours)
                 CALL AllocateVector( MtrxN % Neighbours,  SIZE(MeshN % Neighbours) )
+
                 MtrxN % Neighbours = MeshN % Neighbours
                 IF(.NOT.DGReduced) THEN ! ?
                   DO m=1,SIZE(MeshN % Neighbours)
@@ -695,9 +693,7 @@ CONTAINS
          END IF
        END BLOCK
 
-
-       Matrix % ParMatrix => &
-          ParInitMatrix( Matrix, Matrix % ParallelInfo )
+       Matrix % ParMatrix => ParInitMatrix( Matrix, Matrix % ParallelInfo )
 
 !if(parenv%mype==0) print*,'MATRIX INIT TIME: ', realtime()-tt
 #endif
