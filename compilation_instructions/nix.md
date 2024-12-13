@@ -17,6 +17,17 @@ Specifying no variant implies the `default` derivation.
 
 The Nix flake exposes an overlay which contains the three Elmer variants under the follwowing package names: `elmer`, `elmer-gui`, `elmer-full`.
 
+# Binary cache
+
+Add the follwing to your Nix config to use the Elmer binary cache.
+
+```nix
+nix.settings = {
+  substituters = [ "https://elmerfem.cachix.org" ];
+  trusted-public-keys = [ "elmerfem.cachix.org-1:nWIb5JzEzC2/W6qiuaC0urJRG+S7KvTn9WatX43gkHk=" ];
+};
+```
+
 # Building of Elmer with Nix
 
 ## Compiling from upstream
