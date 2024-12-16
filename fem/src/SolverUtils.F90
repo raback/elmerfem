@@ -6626,8 +6626,8 @@ CONTAINS
       IF( .NOT. ASSOCIATED( Model % Solver % MortarBCs ) ) THEN
         CALL Info('SetPeriodicBoundariesPass1',&
             'Allocating mortar BCs for solver',Level=8)
-        ALLOCATE( Model % Solver % MortarBCs( Model % NumberOfBCs ) )
-        DO i=1, Model % NumberOfBCs
+        ALLOCATE( Model % Solver % MortarBCs( Model % NumberOfBCs + Model % NumberOfBodyForces ) )
+        DO i=1, Model % NumberOfBCs + Model % NumberOfBodyForces
           Model % Solver % MortarBCs(i) % Projector => NULL()
         END DO
       END IF
@@ -23269,7 +23269,8 @@ CONTAINS
 
      LOGICAL :: IsNonlinear,IsSteadyState,Timing, RequireNonlinear, ContactBC, &
          MortarBC, IntegralBC
-     LOGICAL :: ApplyMortar, ApplyContact, ApplyIntegral, StoreCyclic, Found, StaticProj
+     LOGICAL :: ApplyMortar, ApplyContact, ApplyIntegral, StoreCyclic, Found, &
+         StaticProj, IsBodyForce
      INTEGER :: i,j,k,l,n,dsize,size0,col,row,dim
      TYPE(ValueList_t), POINTER :: BC
      TYPE(Matrix_t), POINTER :: CM, CMP, CM0, CM1
@@ -23312,28 +23313,40 @@ CONTAINS
      IsSteadyState = .NOT. IsNonlinear
 
      IF( .NOT. ASSOCIATED( Solver % MortarBCs ) ) THEN
-       ALLOCATE( Solver % MortarBCs( Model % NumberOfBCs ) )
-       DO i=1, Model % NumberOfBCs
+       ALLOCATE( Solver % MortarBCs( Model % NumberOfBCs + Model % NumberOfBodyForces ) )
+       DO i=1, Model % NumberOfBCs + Model % NumberOfBodyForces
          Solver % MortarBCs(i) % Projector => NULL()
        END DO
      END IF
      
      dim = CoordinateSystemDimension()
 
-     DO i=1,Model % NumberOFBCs
-       BC => Model % BCs(i) % Values
-       
+     DO i=1,Model % NumberOFBCs + Model % NumberOfBodyForces
+       IF(i > Model % NumberOfBCs ) THEN
+         BC => Model % BodyForces(i-Model % NumberOfBCs) % Values
+         IsBodyForce = .TRUE.
+       ELSE         
+         BC => Model % BCs(i) % Values
+         IsBodyForce = .FALSE.
+       END IF
+         
        k = 0
        j = ListGetInteger( BC,'Mortar BC',MortarBC)       
        j = j + ListGetInteger( BC,'Contact BC',ContactBC)       
        IntegralBC = ListGetLogical( BC,'Integral BC',Found ) 
+
        IF( MortarBC ) k = k+1
        IF( ContactBC ) k = k+1
        IF( IntegralBC ) k = k+1
+       IF(k==0) CYCLE
+         
        IF( k > 1 ) THEN
          CALL Fatal(Caller,'Boundary '//I2S(i)//' can only be one of mortar, contact and integral!')
        END IF     
-       IF(k==0) CYCLE
+
+       IF(IsBodyForce .AND. .NOT. IntegralBC ) THEN
+         CALL Fatal(Caller,'Body Force '//I2S(i)//' can only have integral bc!')
+       END IF     
 
        IF( InfoActive(10) ) THEN
          IF( MortarBC ) CALL Info(Caller,'Generating mortar conditions for BC: '//I2S(i))
@@ -23379,7 +23392,7 @@ CONTAINS
 
        ! Compute new projector
        IF( IntegralBC ) THEN         
-         Proj => IntegralProjector(Model,Solver % Mesh, i ) 
+         Proj => IntegralProjector(Model,Solver % Mesh, i, IsBodyForce ) 
        ELSE
          ! This is the same for mortar and contact!
          Proj => PeriodicProjector(Model,Solver % Mesh,i,j,dim,.TRUE.)
@@ -23440,7 +23453,7 @@ CONTAINS
 
      TYPE(Solver_t), POINTER :: PSolver
      INTEGER :: i
-     LOGICAL :: Found, GotSome 
+     LOGICAL :: Found, GotSome, DoIt, IsBodyForce
      CHARACTER(*), PARAMETER :: Caller="GenerateRobinProjector"
 
      
@@ -23448,12 +23461,18 @@ CONTAINS
 
      PSolver => Solver
      GotSome = .FALSE.
-     DO i=1,Model % NumberOFBCs
-       IF(ListGetLogical( Model % BCs(i) % Values,'Flux Integral BC',Found ) ) THEN
-         CALL Info(Caller,'Generating flux integral conditions for BC: '//I2S(i))
-         CALL RobinProjector(Model,PSolver, i ) 
-         GotSome = .TRUE.
+     DO i=1,Model % NumberOFBCs + Model % NumberOfBodyForces
+       IF(i<=Model % NumberOfBCs) THEN
+         IF(.NOT. ListGetLogical( Model % BCs(i) % Values,'Flux Integral BC',Found ) ) CYCLE
+         IsBodyForce = .FALSE.
+       ELSE
+         IF(.NOT. ListGetLogical( Model % BodyForces(i-Model % NumberOfBCs) % Values,'Flux Integral BC',Found ) ) CYCLE
+         IsBodyForce = .TRUE.
        END IF
+       
+       CALL Info(Caller,'Generating flux integral conditions for BC: '//I2S(i))
+       CALL RobinProjector(Model,PSolver, i, IsBodyForce) 
+       GotSome = .TRUE.
      END DO
 
      IF( GotSome ) THEN
@@ -23469,11 +23488,12 @@ CONTAINS
    ! This creates a projector that integrates over the BCs on the boundary such that
    ! an integral constraint for Robin type of BCs may be applied.
    !--------------------------------------------------------------------------------------
-   SUBROUTINE RobinProjector(Model, Solver, BCInd ) 
+   SUBROUTINE RobinProjector(Model, Solver, BCInd, IsBodyForce ) 
 
      TYPE(Model_t) :: Model
      TYPE(Solver_t), POINTER :: Solver    
-     INTEGER :: BCInd    
+     INTEGER :: BCInd
+     LOGICAL :: IsBodyForce
 
      TYPE(Matrix_t), POINTER :: Proj        
      TYPE(Mesh_t), POINTER :: Mesh
@@ -23483,7 +23503,11 @@ CONTAINS
      TYPE(MortarBC_t), POINTER :: MortarBC
      CHARACTER(*), PARAMETER :: Caller="RobinProjector"
 
-     BC => Model % BCs(BCInd) % Values
+     IF(IsBodyForce) THEN
+       BC => Model % BodyForces(BCind-Model % NumberOfBCs) % Values
+     ELSE
+       BC => Model % BCs(BCInd) % Values
+     END IF
      IF( .NOT. ListGetLogical( BC,'Flux Integral BC', Found ) ) RETURN
 
      Proj => Solver % MortarBCs(BCInd) % Projector
@@ -23528,7 +23552,7 @@ CONTAINS
 
      SUBROUTINE CreateRobinProjector()
 
-       INTEGER :: i,j,k,n,t,dofs,idof
+       INTEGER :: i,j,k,n,t,dofs,idof,t1,t2
        REAL(KIND=dp) :: dval
        TYPE(Matrix_t), POINTER :: A
        TYPE(Variable_t), POINTER :: Var
@@ -23545,14 +23569,26 @@ CONTAINS
          CALL Fatal(Caller,'BulkValues are needed to aveluate Robin terms!')
        END IF
 
+       IF(IsBodyForce) THEN
+         t1 = 1
+         t2 = Mesh % NumberOfBulkElements 
+       ELSE
+         t1 = Mesh % NumberOfBulkElements + 1
+         t2 = (t1-1) + Mesh % NumberOfBoundaryElements
+       END IF
        
        ! Mark the dofs of the matrix that are on the boundary.
        ! ActiveDof table will directly refer to the indexes of the matrix.
        ALLOCATE(ActiveDof(n))
        ActiveDof = .FALSE.       
-       DO t = 1, Mesh % NumberOfBoundaryElements
-         Element => Mesh % Elements(Mesh % NumberOfBulkElements + t )
-         IF ( Element % BoundaryInfo % Constraint /= Model % BCs(BCInd) % Tag ) CYCLE
+       DO t = t1, t2
+         Element => Mesh % Elements(t)
+         IF(IsBodyForce) THEN
+           i = ListGetInteger( Model % Bodies(Element % BodyId) % Values,'Body Force',Found)
+           IF(i /= BCind - Model % NumberOfBCs) CYCLE
+         ELSE
+           IF ( Element % BoundaryInfo % Constraint /= Model % BCs(BCInd) % Tag ) CYCLE
+         END IF
          Indexes => Element % NodeIndexes      
 
          IF(ANY(Var % Perm(Indexes) == 0 ) ) CYCLE
@@ -23620,19 +23656,16 @@ CONTAINS
      TYPE(Variable_t), POINTER :: Var
      CHARACTER(:), ALLOCATABLE :: Str,MultName
      REAL(KIND=dp), ALLOCATABLE :: rsum(:)
-     LOGICAL :: IsDg
+     LOGICAL :: IsDg, IsBodyForce
      INTEGER, ALLOCATABLE :: DgSome(:)
      TYPE(Mesh_t), POINTER :: Mesh
      TYPE(Element_t), POINTER :: Element
      
      ! Should we genarete the matrix
      NeedToGenerate = Solver % MortarBCsChanged
-
+     
      Mesh => Solver % Mesh 
      IsDg = Solver % DG     
-
-
-
 
      PerFlipActive = Solver % PeriodicFlipActive
      IF( PerFlipActive ) THEN
@@ -23688,8 +23721,8 @@ CONTAINS
      ! Compute the number and size of mortar matrices
      !-----------------------------------------------
      IF( ASSOCIATED( Solver % MortarBCs ) ) THEN
-       DO bc_ind=1,Model % NumberOFBCs
-         Atmp => Solver % MortarBCs(bc_ind) % Projector
+       DO bc_ind=1,Model % NumberOFBCs + Model % NumberOfBodyForces
+         Atmp => Solver % MortarBCs(bc_ind) % Projector         
          IF( .NOT. ASSOCIATED( Atmp ) ) CYCLE
          bcount = bcount + 1
          row = row + Atmp % NumberOfRows
@@ -23852,13 +23885,13 @@ CONTAINS
      TransposePresent = .FALSE.
      Ctmp => Solver % ConstraintMatrix
 
-     DO constraint_ind = Model % NumberOFBCs+mcount,1,-1
+     DO constraint_ind = Model % NumberOFBCs + Model % NumberOfBodyForces + mcount,1,-1
        
        ! This is the default i.e. all components are applied mortar BCs
        ActiveComponents = .TRUE.
        ThisIsRobin = .FALSE.
        
-       IF(constraint_ind > Model % NumberOfBCs) THEN
+       IF(constraint_ind > Model % NumberOfBCs + Model % NumberOfBodyForces ) THEN
          ThisIsMortar = .FALSE.
          Reorder = .FALSE.                
          SumThis = .FALSE.
@@ -23880,12 +23913,16 @@ CONTAINS
          Reorder = ThisIsMortar
 
          SumThis = SumProjectors
-         IF( AnyPriority ) THEN
+         IsBodyForce = .FALSE.
+         IF( constraint_ind > Model % NumberOfBCs ) THEN
+           IsBodyForce = .TRUE.
+           bc_ind = constraint_ind
+         ELSE IF( AnyPriority ) THEN           
            bc_ind = BCOrdering(constraint_ind)
          ELSE
            bc_ind = constraint_ind 
          END IF
-
+         
          MortarBC => Solver % MortarBCs(bc_ind) 
          Atmp => MortarBC % Projector
 
@@ -23895,11 +23932,16 @@ CONTAINS
 
          IF( .NOT. ASSOCIATED( Atmp ) ) CYCLE
 
-         BC => Model % BCs(bc_ind) % Values         
-         IF( AnyPriority ) THEN
-           Priority = ListGetInteger( BC,'Projector Priority',Found)
+         IF(IsBodyForce ) THEN
+           BC => Model % BodyForces(bc_ind - Model % NumberOfBCs) % Values
+           Priority = .FALSE.           
+         ELSE
+           BC => Model % BCs(bc_ind) % Values         
+           IF( AnyPriority ) THEN
+             Priority = ListGetInteger( BC,'Projector Priority',Found)
+           END IF
          END IF
-
+           
          IntegralBC = ListGetLogical( BC,'Integral BC',Found ) 
 
          IF( Atmp % ProjectorType == PROJECTOR_TYPE_ROBIN ) THEN

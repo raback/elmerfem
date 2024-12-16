@@ -16450,27 +16450,38 @@ CONTAINS
   ! an integral constraint may be applied on it. For example, we could set the
   ! incoming flow without actually setting the profile.
   !--------------------------------------------------------------------------------------
-  FUNCTION IntegralProjector(Model, Mesh, BCInd ) RESULT ( Projector )
+  FUNCTION IntegralProjector(Model, Mesh, BCInd, IsBodyForce ) RESULT ( Projector )
 
     TYPE(Model_t) :: Model  
     TYPE(Mesh_t), TARGET :: Mesh
-    INTEGER :: BCInd    
+    INTEGER :: BCInd
+    LOGICAL :: IsBodyForce
     TYPE(Matrix_t), POINTER :: Projector
         
     REAL(KIND=dp) :: area
     TYPE(ValueList_t), POINTER :: BC
     LOGICAL :: Found
-    INTEGER :: n
+    INTEGER :: n, nbc
     CHARACTER(*), PARAMETER :: Caller="IntegralProjector"
 
+    nbc = Model % NumberOfBCs
     
-    BC => Model % BCs(BCInd) % Values
+    IF(IsBodyForce) THEN    
+      BC => Model % BodyForces(BCInd-nbc) % Values
+      IF(.NOT. ASSOCIATED(BC)) CALL Warn(Caller,'Why not body force associated!?')
+    ELSE
+      BC => Model % BCs(BCInd) % Values
+    END IF
     NULLIFY(Projector)
     
     IF( .NOT. ListGetLogical( BC,'Integral BC', Found ) ) RETURN
-
-    CALL Info(Caller,'Creating integral constraint matrix for boundary: '//I2S(BCind),Level=6)
     
+    IF(IsBodyForce) THEN
+      CALL Info(Caller,'Creating integral constraint matrix for body force: '//I2S(BCind-nbc),Level=6)
+    ELSE
+      CALL Info(Caller,'Creating integral constraint matrix for boundary: '//I2S(BCind),Level=6)
+    END IF
+      
     Projector => AllocateMatrix()
     Projector % FORMAT = MATRIX_LIST
     Projector % ProjectorType = PROJECTOR_TYPE_INTEGRAL
@@ -16499,7 +16510,7 @@ CONTAINS
     
     SUBROUTINE CreateIntegralProjector()
     
-      INTEGER :: i,j,n,t,p
+      INTEGER :: i,j,n,t,p,t1,t2
       REAL(KIND=dp) :: u,v,w,weight,x,detJ,val
       REAL(KIND=dp), ALLOCATABLE :: Basis(:)
       TYPE(Nodes_t) :: Nodes
@@ -16519,12 +16530,26 @@ CONTAINS
       AxisSym = ( CurrentCoordinateSystem() == AxisSymmetric .OR. &
           CurrentCoordinateSystem() == CylindricSymmetric ) 
 
-      DO t = 1, Mesh % NumberOfBoundaryElements
+      IF(IsBodyForce) THEN
+        t1 = 1
+        t2 = Mesh % NumberOfBulkElements 
+      ELSE
+        t1 = Mesh % NumberOfBulkElements + 1
+        t2 = (t1-1) + Mesh % NumberOfBoundaryElements
+      END IF
+        
+      
+      DO t = t1, t2
 
-        Element => Mesh % Elements(Mesh % NumberOfBulkElements + t )
+        Element => Mesh % Elements( t )
 
-        IF ( Element % BoundaryInfo % Constraint /= Model % BCs(BCInd) % Tag ) CYCLE
-
+        IF( IsBodyForce ) THEN
+          i = ListGetInteger( Model % Bodies(Element % BodyId) % Values,'Body Force',Stat)
+          IF(i /= BCind-nbc) CYCLE
+        ELSE
+          IF ( Element % BoundaryInfo % Constraint /= Model % BCs(BCInd) % Tag ) CYCLE
+        END IF
+          
         n = Element % TYPE % NumberOfNodes        
         Indexes => Element % NodeIndexes      
         IP = GaussPoints( Element )
@@ -16558,11 +16583,11 @@ CONTAINS
 
 
     ! Let us associate the inverse permutation to some degree of freedom that is unique and not
-    ! set by some other BCs. This unique index is needed in the future. 
+    ! set by some other BC / BodyForce. This unique index is needed in the future. 
     !------------------------------------------------------------------------------------------
     SUBROUTINE SetInvPermIndex()
     
-      INTEGER :: i,j,t,n,maxind
+      INTEGER :: i,j,t,t1,t2,n,maxind
       TYPE(Element_t), POINTER :: Element
       INTEGER, POINTER :: Indexes(:)  
       LOGICAL, ALLOCATABLE :: SomeOtherBC(:)
@@ -16577,24 +16602,43 @@ CONTAINS
       SomeOtherBC = .FALSE.
       maxind = 0
       
-      DO t = 1, Mesh % NumberOfBoundaryElements
-        Element => Mesh % Elements(Mesh % NumberOfBulkElements + t )
-        IF ( Element % BoundaryInfo % Constraint == Model % BCs(BCInd) % Tag ) CYCLE
+      IF(IsBodyForce) THEN
+        t1 = 1
+        t2 = Mesh % NumberOfBulkElements 
+      ELSE
+        t1 = Mesh % NumberOfBulkElements + 1
+        t2 = (t1-1) + Mesh % NumberOfBoundaryElements
+      END IF
+        
+      DO t = t1, t2
+        Element => Mesh % Elements(t)
+        IF( IsBodyForce ) THEN
+          i = ListGetInteger( Model % Bodies(Element % BodyId) % Values,'Body Force',Found)
+          IF(i == BCind-nbc) CYCLE
+        ELSE          
+          IF ( Element % BoundaryInfo % Constraint == Model % BCs(BCInd) % Tag ) CYCLE
+        END IF
         Indexes => Element % NodeIndexes      
         SomeOtherBC(Indexes) = .TRUE.
       END DO
 
-      DO t = 1, Mesh % NumberOfBoundaryElements
-        Element => Mesh % Elements(Mesh % NumberOfBulkElements + t )
-        IF ( Element % BoundaryInfo % Constraint == Model % BCs(BCInd) % Tag ) THEN
-          Indexes => Element % NodeIndexes      
-          n = Element % TYPE % NumberOfNodes        
-          DO i=1,n
-            j = Indexes(i)
-            IF( SomeOtherBC(j) ) CYCLE
-            maxind = MAX(maxind,j)
-          END DO
+      DO t = t1, t2
+        Element => Mesh % Elements(t)
+
+        IF( IsBodyForce ) THEN
+          i = ListGetInteger( Model % Bodies(Element % BodyId) % Values,'Body Force',Found)
+          IF(i /= BCind-nbc) CYCLE
+        ELSE
+          IF ( Element % BoundaryInfo % Constraint /= Model % BCs(BCInd) % Tag ) CYCLE
         END IF
+          
+        Indexes => Element % NodeIndexes      
+        n = Element % TYPE % NumberOfNodes        
+        DO i=1,n
+          j = Indexes(i)
+          IF( SomeOtherBC(j) ) CYCLE
+          maxind = MAX(maxind,j)
+        END DO
       END DO
       
       IF( maxind == 0 ) THEN
