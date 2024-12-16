@@ -23151,6 +23151,14 @@ CONTAINS
     IF ( ASSOCIATED( Mesh % ParallelInfo % FaceInterface ) ) &
         DEALLOCATE( Mesh % ParallelInfo % FaceInterface )
 
+    IF ( ASSOCIATED( Mesh % ParallelInfo % FaceNeighbourList ) ) THEN
+      DO i=1,Mesh % NumberOfNodes
+        IF(ASSOCIATED( Mesh % ParallelInfo % FaceNeighbourList(i) % Neighbours ) ) &
+            DEALLOCATE( Mesh % ParallelInfo % FaceNeighbourList(i) % Neighbours )
+      END DO
+      DEALLOCATE( Mesh % ParallelInfo % FaceNeighbourList )
+    END IF
+
     IF ( ASSOCIATED( Mesh % ParallelInfo % EdgeNeighbourList ) ) THEN 
       DO i=1,Mesh % NumberOfNodes
         IF(ASSOCIATED( Mesh % ParallelInfo % EdgeNeighbourList(i) % Neighbours ) ) &
