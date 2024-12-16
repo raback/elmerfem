@@ -1084,11 +1084,12 @@ SUBROUTINE CalvingRemeshMMG( Model, Solver, dt, Transient )
 30 CONTINUE
 
    !Wait for all partitions to finish
-   IF(My_Calv_Front>0) THEN
-     CALL MPI_BARRIER(COMM_CALVE,ierr)
-     CALL MPI_COMM_FREE(COMM_CALVE,ierr)
-     CALL MPI_GROUP_FREE(group_world,ierr)
-   END IF
+
+   CALL MPI_GROUP_FREE(group_world,ierr)
+   CALL MPI_GROUP_FREE(group_calve,ierr)
+   IF(My_Calv_Front > 0) &
+       CALL MPI_COMM_FREE(COMM_CALVE,ierr)
+
    CALL MPI_BARRIER(ELMER_COMM_WORLD,ierr)
 
    CALL MPI_BCAST(CalvingFileCreated, 1, MPI_LOGICAL, my_cboss, ELMER_COMM_WORLD, ierr)

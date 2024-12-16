@@ -468,9 +468,27 @@ CONTAINS
         CALL Info(FuncName, Message)
         IF(ImbalanceTol < 1.0) CALL FATAL(FuncName, 'Unable to rebalance successfully')
         DEALLOCATE(ElemAdj, ElemAdjProc, ElemStart, PartSuccess)
+
+        ! release zoltan input/output arrays
+        IF(numImport > 0) &
+          zierr = Zoltan_LB_Free_Part(importGlobalGids,importLocalGids,importProcs,importToPart)
+        IF(numExport > 0) &
+          zierr = Zoltan_LB_Free_Part(exportGlobalGids,exportLocalGids,exportProcs,exportToPart)
+
+        ! release zoltan object and mpi communicators
+        CALL Zoltan_Destroy(zz_obj)
         GOTO 10
       END IF
     END IF
+
+    ! release zoltan input/output arrays
+    IF(numImport > 0) &
+      zierr = Zoltan_LB_Free_Part(importGlobalGids,importLocalGids,importProcs,importToPart)
+    IF(numExport > 0) &
+      zierr = Zoltan_LB_Free_Part(exportGlobalGids,exportLocalGids,exportProcs,exportToPart)
+
+    ! release zoltan object and mpi communicators
+    CALL Zoltan_Destroy(zz_obj)
     
     CALL Info(FuncName,'Finished Zoltan partitioning',Level=10)
     
