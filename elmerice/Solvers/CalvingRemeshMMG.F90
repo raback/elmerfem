@@ -96,10 +96,10 @@ SUBROUTINE CalvingRemeshMMG( Model, Solver, dt, Transient )
        RemeshOccurs,CheckFlowConvergence, NoNewNodes, RSuccess, Success,&
        SaveMMGMeshes, SaveMMGSols, PauseSolvers, PauseAfterCalving, FixNodesOnRails, &
        SolversPaused, NewIceberg, GotNodes(4), CalvingFileCreated=.FALSE., SuppressCalv,&
-       DistributedMesh,SaveTerminus,RemeshFront
+       DistributedMesh,SaveTerminus,RemeshFront,RemeshIfNoCalving
   CHARACTER(LEN=MAX_NAME_LEN) :: SolverName, CalvingVarName, MeshName, SolName, &
        premmgls_meshfile, mmgls_meshfile, premmgls_solfile, mmgls_solfile,&
-       RepartMethod, Filename
+       RepartMethod, Filename, DistVarName
   TYPE(Variable_t), POINTER :: TimeVar
   INTEGER :: Time, remeshtimestep, proc, idx, island, node, MaxLSetIter, mmgloops
   REAL(KIND=dp) :: TimeReal, PreCalveVolume, PostCalveVolume, CalveVolume, LsetMinQuality
@@ -188,6 +188,11 @@ SUBROUTINE CalvingRemeshMMG( Model, Solver, dt, Transient )
     CALL WARN(SolverName, "'Levelset Variable Name' not set so assuming 'Calving Lset'.")
     CalvingVarName = "Calving LSet"
   END IF
+  DistVarName = ListGetString(SolverParams, "Distance Variable Name", Found)
+  IF(.NOT. Found) THEN
+    CALL WARN(SolverName, "'Distance Variable Name' not set so assuming 'Distance'.")
+    DistVarName = "Distance"
+  END IF
   SaveMMGMeshes = ListGetLogical(SolverParams,"Save MMGLS Meshes", DefValue=.FALSE.)
   SaveMMGSols = ListGetLogical(SolverParams,"Save MMGLS Sols", DefValue=.FALSE.)
   IF(SaveMMGMeshes) THEN
@@ -211,6 +216,11 @@ SUBROUTINE CalvingRemeshMMG( Model, Solver, dt, Transient )
   IF(.NOT. Found) THEN
     CALL Info(SolverName, "Not Found 'Remesh Full Calving Front' asssuming TRUE")
     RemeshFront = .TRUE.
+  END IF
+  RemeshIfNoCalving = ListGetLogical(SolverParams,"Remesh if no calving", Found)
+  IF(.NOT. Found) THEN
+    CALL Info(SolverName, "Not Found 'Remesh if no calving' asssuming TRUE")
+    RemeshIfNoCalving = .TRUE.
   END IF
 
   ! calving algo passes through 202 elems to mmg
@@ -247,7 +257,7 @@ SUBROUTINE CalvingRemeshMMG( Model, Solver, dt, Transient )
   fixed_node = .FALSE.
 
   ! TO DO some other wah to define remeshed nodes
-  DistanceVar  => VariableGet(Mesh % Variables, "Distance", .TRUE., UnfoundFatal=.TRUE.)
+  DistanceVar  => VariableGet(Mesh % Variables, DistVarName, .TRUE., UnfoundFatal=.TRUE.)
   ALLOCATE(test_dist(NNodes))
   test_dist = DistanceVar  % Values(DistanceVar % Perm(:))
   remeshed_node = test_dist < remesh_thresh
@@ -533,6 +543,14 @@ SUBROUTINE CalvingRemeshMMG( Model, Solver, dt, Transient )
       END DO
     END IF
   END IF ! My calving front > 1
+
+  ! if no calving and we don't want to remesh then go to end
+  ! need gathered mesh for terminus output
+  ! also need to update mesh deformation variables
+  IF(.NOT. RemeshIfNoCalving .AND. .NOT. CalvingOccurs .AND. .NOT. NSFail) THEN
+    RSuccess =.FALSE.
+    GO TO 30
+  END IF
 
   !Nominated partition does the remeshing
   IF(ImBoss) THEN
