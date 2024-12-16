@@ -2368,7 +2368,8 @@ CONTAINS
   !> Converts element datastructure into a integer and real stream to facilitate
   !> sending to another partition.
   !------------------------------------------------------------------------------
-  SUBROUTINE PackMeshPieces(Model, Mesh, NewPart, ParallelMesh, NoPartitions, SentPack, dim)
+  SUBROUTINE PackMeshPieces(Model, Mesh, NewPart, ParallelMesh, NoPartitions, &
+    SentPack, dim, NodalVals )
 
     IMPLICIT NONE
 
