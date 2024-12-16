@@ -181,6 +181,15 @@ MODULE Types
   END TYPE CPardiso_struct
 #endif     
 
+
+#ifdef HAVE_ROCALUTION
+  TYPE RocParams_t
+    TYPE(Matrix_t), POINTER :: Rmatrix => Null()
+    INTEGER, POINTER :: CntPerm(:)=> Null(), LocPerm(:) => Null(), gOffset(:) => Null()
+  END TYPE RocParams_t
+#endif
+
+
   TYPE Matrix_t
     TYPE(Matrix_t), POINTER :: Child => NULL(), Parent => NULL(), CircuitMatrix => NULL(), &
         ConstraintMatrix=>NULL(), EMatrix=>NULL(), AddMatrix=>NULL(), CollectionMatrix=>NULL()
@@ -214,7 +223,7 @@ MODULE Types
                DiagScaling(:) => NULL(), TValues(:) => NULL(), Values_im(:) => NULL()
 
     REAL(KIND=dp), ALLOCATABLE :: extraVals(:)
-    REAL(KIND=dp) :: RhsScaling=1.0, AveScaling=1.0 
+    REAL(KIND=dp) :: RhsScaling=1.0_dp, AveScaling=1.0_dp 
     INTEGER :: ScalingMethod = 0
     REAL(KIND=dp),  POINTER CONTIG :: MassValues(:)=>NULL(),DampValues(:)=>NULL(), &
         BulkValues(:)=>NULL(), BulkMassValues(:)=>NULL(), BulkDampValues(:)=>NULL(), &
@@ -249,6 +258,9 @@ MODULE Types
 #ifdef HAVE_TRILINOS
     INTEGER(KIND=C_INTPTR_T) :: Trilinos=0
 #endif
+#ifdef HAVE_ROCALUTION
+    TYPE(RocParams_t) :: RocParams
+#endif
     INTEGER(KIND=C_INTPTR_T) :: AMGX=0, AMGXMV=0
     INTEGER(KIND=AddrInt) :: SpMV=0
 
@@ -277,16 +289,15 @@ MODULE Types
 !------------------------------------------------------------------------------
 
   TYPE ParEnv_t
-     INTEGER                          :: PEs
-     INTEGER                          :: MyPE
-     LOGICAL                          :: Initialized
-     INTEGER                          :: ActiveComm
-     LOGICAL, DIMENSION(:), POINTER   :: Active => NULL()
-     LOGICAL, DIMENSION(:), POINTER   :: IsNeighbour => NULL()
-     LOGICAL, DIMENSION(:), POINTER   :: SendingNB => NULL()
-     INTEGER                          :: NumOfNeighbours
+     INTEGER                          :: PEs  = 1
+     INTEGER                          :: MyPE = 0
+     LOGICAL                          :: Initialized = .FALSE.
+     INTEGER                          :: ActiveComm  = 0
+     LOGICAL, DIMENSION(:), POINTER   :: Active => Null()
+     LOGICAL, DIMENSION(:), POINTER   :: IsNeighbour => Null()
+     INTEGER                          :: NumOfNeighbours = 0
      INTEGER                          :: NumberOfThreads = 1
-     LOGICAL                          :: ExternalInit
+     LOGICAL                          :: ExternalInit = .FALSE.
    END TYPE ParEnv_t
 
 
@@ -348,9 +359,9 @@ MODULE Types
   TYPE SParIterSolverGlobalD_t
      TYPE (SplittedMatrixT), POINTER :: SplittedMatrix=>NULL()
      TYPE (Matrix_t), POINTER :: Matrix=>NULL()
-     TYPE (ParallelInfo_t), POINTER :: ParallelInfo=>NULL()
-     TYPE(ParEnv_t) :: ParEnv
      INTEGER :: DOFs, RelaxIters
+     TYPE(ParEnv_t) :: ParEnv
+     TYPE (ParallelInfo_t), POINTER :: ParallelInfo=>NULL()
   END TYPE SParIterSolverGlobalD_t
 
   TYPE(SParIterSolverGlobalD_t), POINTER :: ParMatrix => NULL()
@@ -599,7 +610,8 @@ MODULE Types
      INTEGER :: DOFs = 0
      INTEGER, POINTER          :: Perm(:) => NULL()
      LOGICAL :: PeriodicFlipActive = .FALSE.
-     REAL(KIND=dp)             :: Norm=0, PrevNorm=0,NonlinChange=0, SteadyChange=0
+     REAL(KIND=dp)             :: Norm=0.0_dp, PrevNorm=0.0_dp,&
+         NonlinChange=0.0_dp, SteadyChange=0.0_dp
      INTEGER :: NonlinConverged=-1, SteadyConverged=-1, NonlinIter=-1
      INTEGER :: LinConverged=-1
      COMPLEX(KIND=dp), POINTER :: EigenValues(:) => NULL(), &
@@ -608,6 +620,7 @@ MODULE Types
      INTEGER, POINTER :: ConstraintModesIndeces(:) => NULL()
      REAL(KIND=dp), POINTER :: ConstraintModesWeights(:) => NULL()
      INTEGER :: NumberOfConstraintModes = -1
+     LOGICAL :: FrozenMode = .FALSE.
      REAL(KIND=dp), POINTER :: Values(:) => NULL() ,&
           PrevValues(:,:) => NULL(), &
           PValues(:) => NULL(), NonlinValues(:) => NULL(), &
@@ -620,7 +633,7 @@ MODULE Types
 !------------------------------------------------------------------------------
    TYPE ListMatrixEntry_t
      INTEGER :: Index = -1
-     REAL(KIND=dp) :: val = 0.0
+     REAL(KIND=dp) :: val = 0.0_dp
      TYPE(ListMatrixEntry_t), POINTER :: Next => NULL()
    END TYPE ListMatrixEntry_t
 
@@ -843,7 +856,7 @@ MODULE Types
    
    TYPE Graphcolour_t
      INTEGER :: nc
-     INTEGER, ALLOCATABLE :: colours(:)
+     INTEGER, POINTER :: colours(:) => Null()
    END TYPE Graphcolour_t
 
    TYPE MortarBC_t 

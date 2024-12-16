@@ -613,7 +613,7 @@ END SUBROUTINE MagnetoDynamicsCalcFields_Init
    COMPLEX(KIND=dp), ALLOCATABLE :: Magnetization(:,:), BodyForceCurrDens(:,:)
    COMPLEX(KIND=dp), ALLOCATABLE :: R_Z(:), PR(:)
 !------------------------------------------------------------------------------
-   REAL(KIND=dp) :: s,Norm 
+   REAL(KIND=dp) :: s,Norm, Mult
    REAL(KIND=dp) :: B(2,3), E(2,3), JatIP(2,3), VP_ip(2,3), JXBatIP(2,3), CC_J(2,3), HdotB, LMSol(2)
    REAL(KIND=dp) :: ldetJ,detJ, C_ip, ST(3,3), Omega, ThinLinePower, Power, Energy(3), w_dens
    REAL(KIND=dp) :: localThickness
@@ -655,7 +655,7 @@ END SUBROUTINE MagnetoDynamicsCalcFields_Init
               CalcFluxLogical, CoilBody, PreComputedElectricPot, ImposeCircuitCurrent, &
               ItoJCoeffFound, ImposeBodyForceCurrent, HasVelocity, HasAngularVelocity, &
               HasLorenzVelocity, HaveAirGap, UseElementalNF, HasTensorReluctivity, &
-              ImposeBodyForcePotential, JouleHeatingFromCurrent, HasZirka, DoAve
+              ImposeBodyForcePotential, JouleHeatingFromCurrent, HasZirka, DoAve, HomogenizationModel
    LOGICAL :: PiolaVersion, ElementalFields, NodalFields, RealField, pRef
    LOGICAL :: CSymmetry, HasHBCurve, LorentzConductivity, HasThinLines=.FALSE., NewMaterial
    
@@ -988,10 +988,10 @@ END SUBROUTINE MagnetoDynamicsCalcFields_Init
      ComponentLoss = 0.0_dp
      ALLOCATE( BodyLoss(3,Model % NumberOfBodies) )
      BodyLoss = 0.0_dp
+     TotalLoss = 0._dp
    END IF
 
    HomogenizationLoss = ASSOCIATED(PL) .OR. ASSOCIATED(EL_PL)
-
    IF (HomogenizationLoss) ALLOCATE( Nu_el(3,3,n) )
 
    VtuStyle = .FALSE.
@@ -1150,7 +1150,9 @@ END SUBROUTINE MagnetoDynamicsCalcFields_Init
                n, Element % NodeIndexes, Found), 0, KIND=dp)
            END IF
          END SELECT
-
+         
+         Mult = ListGetCReal( BodyForce,'Current Density Multiplier', Found )
+         IF(Found) BodyForceCurrDens(1:3,1:n) = Mult * BodyForceCurrDens(1:3,1:n)
        END IF
      END IF
 
@@ -1201,9 +1203,14 @@ END SUBROUTINE MagnetoDynamicsCalcFields_Init
          N_j = GetConstReal (CompParams, 'Stranded Coil N_j', Found)
          IF (.NOT. Found) CALL Fatal ('MagnetoDynamicsCalcFields', 'Stranded Coil N_j not found!')
 
-         IF (HomogenizationLoss) THEN
+
+         HomogenizationModel = GetLogical(CompParams, 'Homogenization Model', Found)
+
+         IF (HomogenizationLoss .and. HomogenizationModel) THEN
            BLOCK
-             REAL(KIND=dp) :: nu_11(n), nuim_11(n), nu_22(n), nuim_22(n)
+             REAL(KIND=dp) :: nu_11(n), nuim_11(n), &
+                              nu_22(n), nuim_22(n), &
+                              nu_33(n), nuim_33(n)
              REAL(KIND=dp) :: sigma_33(n), sigmaim_33(n)
 
              nu_11 = 0._dp
@@ -1216,9 +1223,15 @@ END SUBROUTINE MagnetoDynamicsCalcFields_Init
              nu_22 = GetReal(CompParams, 'nu 22', Found)
              nuim_22 = GetReal(CompParams, 'nu 22 im', FoundIm)
              IF ( .NOT. Found .AND. .NOT. FoundIm ) CALL Fatal ('LocalMatrix', 'Homogenization Model nu 22 not found!')
+             nu_33 = 0._dp
+             nuim_33 = 0._dp
+             nu_33 = GetReal(CompParams, 'nu 33', Found)
+             nuim_33 = GetReal(CompParams, 'nu 33 im', FoundIm)
+             IF ( .NOT. Found .AND. .NOT. FoundIm ) CALL Fatal ('LocalMatrix', 'Homogenization Model nu 33 not found!')
              Nu_el = CMPLX(0.0d0, 0.0d0, kind=dp)
              Nu_el(1,1,1:n) = nu_11(1:n) + im * nuim_11(1:n)
              Nu_el(2,2,1:n) = nu_22(1:n) + im * nuim_22(1:n)
+             Nu_el(3,3,1:n) = nu_33(1:n) + im * nuim_33(1:n)
 
              sigma_33 = GetReal(CompParams, 'sigma 33', Found)
              IF ( .NOT. Found ) sigma_33 = 0._dp
@@ -1640,6 +1653,7 @@ END SUBROUTINE MagnetoDynamicsCalcFields_Init
        END IF
        
        Nu = CMPLX(0.0d0, 0.0d0, kind=dp)
+       w_dens = 0._dp
        IF ( HasHBCurve ) THEN
          IF (RealField) THEN
            Babs=SQRT(SUM(B(1,:)**2))
@@ -1665,7 +1679,7 @@ END SUBROUTINE MagnetoDynamicsCalcFields_Init
              GaussPoint = j, Rdim=mudim, Rtensor=MuTensor, DummyVals = B(1,:) )             
          Nu(1:3,1:3) = muTensor(1:3,1:3)                           
          w_dens = 0.5*SUM(B(1,:)*MATMUL(REAL(Nu), B(1,:)))
-       ELSE IF (HomogenizationLoss .AND. CoilType == 'stranded') THEN
+       ELSE IF (HomogenizationLoss .AND. CoilType == 'stranded' .and. HomogenizationModel) THEN
          DO k=1,3
            DO l=1,3
              Nu(k,l) = SUM( Nu_el(k,l,1:n) * Basis(1:n) )
@@ -1990,7 +2004,6 @@ END SUBROUTINE MagnetoDynamicsCalcFields_Init
            !
          END IF
 
-         IF(ALLOCATED(BodyLoss)) BodyLoss(3,BodyId) = BodyLoss(3,BodyId) + Coeff
          Power = Power + Coeff
          IF ( ASSOCIATED(JH) .OR. ASSOCIATED(EL_JH) .OR. ASSOCIATED(NJH) ) THEN           
            FORCE(p,k+1) = FORCE(p,k+1) + Coeff
@@ -1998,11 +2011,12 @@ END SUBROUTINE MagnetoDynamicsCalcFields_Init
            jh_k = k
          END IF
          
-
          !-------------------------------------------------
          ! Compute a loss estimate for cos and sin modes:
          !-------------------------------------------------
          IF (LossEstimation) THEN
+           BodyLoss(3,BodyId) = BodyLoss(3,BodyId) + Coeff
+
            IF( OldLossKeywords ) THEN
              LossCoeff(1) = ListGetFun( Material,'Harmonic Loss Linear Coefficient',Freq,Found ) 
              LossCoeff(2) = ListGetFun( Material,'Harmonic Loss Quadratic Coefficient',Freq,Found ) 
@@ -2042,7 +2056,7 @@ END SUBROUTINE MagnetoDynamicsCalcFields_Init
            END IF
          END IF
 
-         IF ( HomogenizationLoss .AND. CoilType == 'stranded') THEN
+         IF ( HomogenizationLoss .AND. CoilType == 'stranded' .and. HomogenizationModel) THEN
            ! homogenization loss should be real part of im omega b . conj(h)/2
            BLOCK
              COMPLEX(KIND=dp) :: Bloc(3)=0._dp
@@ -2523,6 +2537,7 @@ END SUBROUTINE MagnetoDynamicsCalcFields_Init
          END DO
        END DO
 
+       TotalLoss = 0._dp
        DO j=1,3
          DO i=1,Model % NumberOfBodies
            BodyLoss(j,i) = ParallelReduction(BodyLoss(j,i)) / NoSlices

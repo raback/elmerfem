@@ -407,11 +407,11 @@
           END DO
 
           CALL MPI_BSEND( vperm, nfound, MPI_INTEGER, proc, &
-                2002, ELMER_COMM_WORLD, status, ierr )
+                2002, ELMER_COMM_WORLD, ierr )
 
           DO j=1,nvars
-            CALL MPI_BSEND( vstore(:,j), nfound,MPI_DOUBLE_PRECISION, proc, &
-                       2002+j, ELMER_COMM_WORLD,ierr )
+            CALL MPI_BSEND( vstore(:,j), nfound, MPI_DOUBLE_PRECISION, proc, &
+                       2002+j, ELMER_COMM_WORLD, ierr )
           END DO
 
           DEALLOCATE(vstore, vperm)
@@ -975,8 +975,16 @@ END SUBROUTINE InterpolateMeshToMesh
                    Var => Var % Next
                    CYCLE
                 END IF
-                
-                OldSol => VariableGet( OldMesh % Variables, Var % Name, .TRUE. )                
+
+                IF(PRESENT(OldVariables)) THEN
+                  OldSol => VariableGet( OldVariables, Var % Name, .TRUE. )
+                ELSE
+                  OldSol => VariableGet( OldMesh % Variables, Var % Name, .TRUE. )
+                END IF
+                IF( .NOT. ASSOCIATED( OldSol ) ) THEN
+                  CALL Fatal('InterpolateMeshToMesh','Variable not associated: '//TRIM(Var % Name))
+                END IF
+                  
                 
                 ! Check that the node was found in the old mesh:
                 ! ----------------------------------------------

@@ -593,7 +593,7 @@ omstart:
 	mode = 1;
       }
       else if(strstr(line,"*NODE")) {
-	if(pstr = strstr(line,"NODE OUTPUT")) {
+	if( ( pstr = strstr(line,"NODE OUTPUT")) ) {
 	  mode = 10;
 	}
 	else  {	  
@@ -604,7 +604,7 @@ omstart:
 	}
       }
       else if(strstr(line,"*ELEMENT")) {
-	if(pstr = strstr(line,"ELEMENT OUTPUT")) {
+	if( ( pstr = strstr(line,"ELEMENT OUTPUT")) ) {
 	  mode = 10;
 	}
 	else {
@@ -645,7 +645,7 @@ omstart:
 			    elemcode,noelements,bodyid);
 	  }
 	  
-	  if(pstr = strstr(line,"ELSET=")) {
+	  if( ( pstr = strstr(line,"ELSET=")) ) {
 	    bodyid++;	    	      
 	    if(allocated) {
 	      if(info) printf("Loading elements to body %d from ELSET %s",bodyid,pstr+6);
@@ -678,7 +678,7 @@ omstart:
 	mode = 4;
 	if(allocated && info) printf("Treating keyword CLOAD for bc %d\n",boundarytype);
       }
-      else if(pstr = strstr(line,"NSET=")) {
+      else if( (pstr = strstr(line,"NSET=")) ) {
 	
 	if( strstr(line,"ELSET=") ) {
 	  /* Skipping association of ELSET to NSET */
@@ -690,7 +690,7 @@ omstart:
 	   if(allocated && info) printf("Treating keyword NSET for bc %d from: %s",boundarytype,pstr+5);
 	 }
       }
-      else if(pstr = strstr(line,"ELSET=")) {
+      else if( (pstr = strstr(line,"ELSET=")) ) {
 	mode = 6;
 
 	generate = FALSE;
@@ -702,17 +702,17 @@ omstart:
 	  pstr += 1;
 
 	  /* This numbering is true for Abaqus-to-Elmer hexas only! */
-	  if( pstr2 = strstr(pstr,"_S1") )
+	  if( ( pstr2 = strstr(pstr,"_S1") ) )
 	    side = 1; 
-	  else if( pstr2 = strstr(pstr,"_S2") )
+	  else if( ( pstr2 = strstr(pstr,"_S2") ) ) 
 	    side = 2; 
-	  else if( pstr2 = strstr(pstr,"_S3") )
+	  else if( ( pstr2 = strstr(pstr,"_S3") ) )
 	    side = 3;  
-	  else if( pstr2 = strstr(pstr,"_S4") )
+	  else if( ( pstr2 = strstr(pstr,"_S4") ) )
 	    side = 4; 
-	  else if( pstr2 = strstr(pstr,"_S5") )
+	  else if( ( pstr2 = strstr(pstr,"_S5") ) )
 	    side = 5; 
-	  else if( pstr2 = strstr(pstr,"_S6") )
+	  else if( ( pstr2 = strstr(pstr,"_S6") ) )
 	    side = 6; 
 	    
 	  if(!side ) printf("Could not determine side!\n"); 
@@ -728,6 +728,7 @@ omstart:
 	  if(allocated) {
 	    if(info) printf("Loading boundary set %d for side %d of %s\n",bcind+newsurface,side,entityname);
 	    k = bcind+newsurface;
+	    if(k>MAXBCS) bigerror("Boundary set larger than MAXBCS!");
 	    if(!data->boundaryname[k]) data->boundaryname[k] = Cvector(0,MAXNAMESIZE);
 	    strcpy(data->boundaryname[k],entityname);
 	    data->boundarynamesexist = TRUE;
@@ -738,6 +739,7 @@ omstart:
 	  sscanf(pstr,"%s",entityname);
 	  if(allocated) {
 	    if(info) printf("Loading element to body %d from %s\n",bodyid,entityname);
+	    if(bodyid>MAXBODIES) bigerror("Body set larger than MAXBODIES!");
 	    if(!data->bodyname[bodyid]) data->bodyname[bodyid] = Cvector(0,MAXNAMESIZE);	      
 	    strcpy(data->bodyname[bodyid],entityname);
 	    data->bodynamesexist = TRUE;
@@ -745,12 +747,12 @@ omstart:
 	}
 	
       }
-      else if(pstr = strstr(line,"SURFACE")) {
+      else if( ( pstr = strstr(line,"SURFACE")) ) {
 	bcind = bcind + newsurface;
 	newsurface = FALSE;
 	mode = 0;
       }
-      else if(pstr = strstr(line,"PART, NAME=")) {
+      else if( ( pstr = strstr(line,"PART, NAME=")) ) {
 	bodyid += 1;
 	mode = 6;
 	generate = FALSE;
@@ -764,7 +766,7 @@ omstart:
 	  data->boundarynamesexist = TRUE;
 	}
       }
-      else if(pstr = strstr(line,"HWCOLOR")) {
+      else if( ( pstr = strstr(line,"HWCOLOR")) ) {
 	/* unused command */
 	mode = 0;
       }
@@ -1085,7 +1087,7 @@ omstart:
     /* The underscore suggest some special Abaqus commands. Scrap that. */
     for(i=1;i<=maxid;i++) {
       if(data->bodyname[i]) 
-	if( pstr = strstr(data->bodyname[i],",") ) pstr[0] = '\0';
+	if( ( pstr = strstr(data->bodyname[i],",") ) ) pstr[0] = '\0';
     }
   }
     
@@ -1770,23 +1772,15 @@ int LoadFidapInput(struct FemType *data,struct BoundaryType *boundaries,char *pr
 			elems,nodes,entityname);
 
 	for(entity=1;entity<=maxentity;entity++) {
-#if 0
-	  k = strcmp(entityname,entitylist[entity]);
-#else
 	  if(!data->bodyname[entity]) break;
 	  k = strcmp(entityname,data->bodyname[entity]);
-#endif
 	  if(k == 0) break;
 	}
 
 	if(entity > maxentity) {
 	  maxentity++;
-#if 0
-	  strcpy(entitylist[entity],entityname);
-#else
 	  if(!data->bodyname[entity]) data->bodyname[entity] = Cvector(0,MAXNAMESIZE);
 	  strcpy(data->bodyname[entity],entityname);
-#endif
 	  if(info) printf("Found new entity: %s\n",entityname);
 	}
 
@@ -2331,6 +2325,7 @@ int LoadAnsysInput(struct FemType *data,struct BoundaryType *bound,
 	bcind = i;
 	bctypeused[bcind] = TRUE;
 	if(0) printf("First unused boundary is of type %d\n",bcind);
+	if(bcind>MAXBCS) bigerror("bcind larger than MAXBCS!");
 	if(!data->boundaryname[bcind]) data->boundaryname[bcind] = Cvector(0,MAXNAMESIZE);
 	strcpy(data->boundaryname[bcind],text);
 	
@@ -2953,15 +2948,8 @@ allocate:
 
       for(i=1; i <= noknots; i++) {
 	GETLINE;
-#if 0
-	printf("i=%d line=%s",i,line);
-#endif
 	if(allocated) {
 	  cp = line;
-#if 0
-	  printf("cp = %s",cp);
-#endif
-
 	  data->x[i] = next_real(&cp);
 	  data->y[i] = next_real(&cp);
 	  if(dim > 2) data->z[i] = next_real(&cp);
@@ -4981,8 +4969,10 @@ omstart:
 	printf("Physical tag offset for %dD is %d\n",tagdim,phystagoffset[tagdim]);
       }
 
-      tagoffset[meshdim] = maxphystag[meshdim];
-      tagoffset[meshdim-1] = phystagoffset[0];
+      if(meshdim>0) {
+        tagoffset[meshdim] = maxphystag[meshdim];
+        tagoffset[meshdim-1] = phystagoffset[0];
+      }
       for(tagdim=meshdim-2;tagdim>=0;tagdim--) {
 	tagoffset[tagdim] = tagoffset[tagdim+1]+MAX(0,maxtag[tagdim+1]);
 	printf("Geometric tag offset for %dD is %d\n",tagdim,tagoffset[tagdim]);
@@ -5285,41 +5275,60 @@ int LoadGmshInput(struct FemType *data,struct BoundaryType *bound,
 
   Getrow(line,in,FALSE);
 
-  if(info) {
-    printf("Format chosen using the first line: %s",line);
-  }
+  if(info) printf("Format chosen using the first line: %s",line);
 
-  if(strstr(line,"$")) {
-    int verno,minorno;
-    char *cp;
-    
+  if(strstr(line,"$MeshFormat")) {
+    // gmsh uses floating point for the version number, so let's also use floating point.
+    // using the gmsh method with a double, actually works better and
+    // is able to detect types 1 and 3 formats.
+    double gmshversion;
+    int gmshbinary,gmshsize;
+
     Getrow(line,in,FALSE);
-    cp = line;    
-    verno = next_int(&cp);
-    cp++;
-    minorno = next_int(&cp);
+    fclose(in);
 
-    if(info) printf("Gmsh version is %d.%d\n",verno,minorno);
-    
-    fclose(in);
-    
-    if( verno == 4 ) {
-      if( minorno == 0 ) 
-	errnum = LoadGmshInput4(data,bound,filename,usetaggeom,keeporphans,info);
-      else if( minorno == 1 ) 
-	errnum = LoadGmshInput41(data,bound,filename,usetaggeom,keeporphans,info);
-      else
-	printf("Minor version not yet supported, cannot continue!\n");
+    if(sscanf(line, "%lf %d %d", &gmshversion, &gmshbinary, &gmshsize) != 3) {
+      printf("Gmsh input line: %s, expected but didn't receive three items on line. Exiting!\n",line);
+      printf("Input line: %s\n",line);
+      bigerror("Gmsh input line didn't receive the expected three items!");
     }
-    else {
-      errnum = LoadGmshInput2(data,bound,filename,usetaggeom,keeporphans,info);
-    }      
+
+    // gmshversion is a float, hence the ugly decimal points to insure proper comparisons
+    if(gmshversion < 2.99) {
+      if(gmshbinary) {
+        printf("Gmsh input file format is type %5.1f, binary is not supported.\n",gmshversion);
+        printf("Please use Gmsh 2 or 4 ASCII versions for output from Gmsh\n");
+        bigerror("Gmsh input file in binary is not supported!");
+      } else {
+        printf("Gmsh input file format is type %5.1f in ASCII.\n",gmshversion);
+        errnum = LoadGmshInput2(data,bound,filename,usetaggeom,keeporphans,info);
+      }
+    } else if(gmshversion < 3.99) {
+      printf("Gmsh input file of format type %5.1f, is not supported. Exiting!\n",gmshversion);
+      printf("Please use Gmsh 2 or 4 ASCII versions for output from Gmsh\n");
+      bigerror("Gmsh input file format is not supported!");
+    } else if(gmshversion < 4.09) {
+      printf("Gmsh input file format is type %5.1f in ASCII.\n",gmshversion);
+      errnum = LoadGmshInput4(data,bound,filename,usetaggeom,keeporphans,info);
+    } else if(gmshversion < 5.0) {
+      if(gmshbinary) {
+        printf("Gmsh input file format is type %5.1f, binary is not supported.\n",gmshversion);
+        printf("Please use Gmsh 2 or 4 ASCII versions for output from Gmsh\n");
+        bigerror("Gmsh input file in binary is not supported!");
+      } else {
+        printf("Gmsh input file format is type %5.1f in ASCII.\n",gmshversion);
+        errnum = LoadGmshInput41(data,bound,filename,usetaggeom,keeporphans,info);
+      }
+    } else {
+      printf("Gmsh input file of format type %5.1f, is not supported. Exiting!\n",gmshversion);
+      printf("Please use Gmsh 2 or 4 ASCII versions for output from Gmsh\n");
+      bigerror("Gmsh input file format is not supported!");
+    }
   } else {
-    fclose(in);
     printf("*****************************************************\n");
-    printf("The first line did not start with $, assuming Gmsh 1 format\n");
+    printf("The first line did not start with $MeshFormat, assuming Gmsh 1 format\n");
     printf("This version of Gmsh format is no longer supported\n");
-    printf("Please use Gmsh 2 or 4 versions for output\n");
+    printf("Please use Gmsh 2 or 4 ASCII versions for output from Gmsh\n");
     printf("*****************************************************\n");
     
     errnum = LoadGmshInput1(data,bound,filename,info);

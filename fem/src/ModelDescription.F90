@@ -115,7 +115,10 @@ CONTAINS
        IF ( .NOT. abort ) a=0
     END IF
 
-    Proc = LoadFunction( q,a,Libname,Procname )
+    Proc = LoadFunction( q,0,Libname,Procname,1 )
+
+    ! if no luck, try without fortran name mangling
+    IF(Proc==0) Proc = LoadFunction( q,a,Libname,Procname,0 )
   END FUNCTION GetProcAddr
 !------------------------------------------------------------------------------
 
@@ -550,6 +553,18 @@ CONTAINS
       ELSE IF ( Section == 'run' ) THEN
          IF ( PRESENT(runc) ) runc=.TRUE.
          EXIT
+      ELSE IF ( Section == 'stop' ) THEN
+        CALL Warn(Caller,'Encountered "STOP" in sif, rest will be ignored!')
+        EXIT
+      ELSE IF( Section == '/*' ) THEN
+        CALL Info(Caller,'Starting comment section!')
+        DO WHILE( ReadAndTrim( InFileUnit, Section, Echo ) )
+          IF ( Section == '*/' ) THEN
+            CALL Info(Caller,'Finished comment section!')
+            EXIT                      
+          END IF
+        END DO
+        CYCLE        
       END IF
 
       FreeNames = ( CheckAbort <= 0 )
@@ -2067,15 +2082,17 @@ CONTAINS
                  k = 0
                  DO i=1,N1
                    ! Find first empty space at "k"
+                   k = k + 1
                    DO WHILE( k <= slen )
-                     k = k + 1
                      IF ( str(k:k) == ' ') EXIT
+                     k = k + 1
                    END DO
 
                    ! Find first non-empty space at "k"
+                   k = k + 1
                    DO WHILE( k <= slen )
-                     k = k + 1
                      IF ( str(k:k) /= ' ') EXIT
+                     k = k + 1
                    END DO
 
                    IF ( k > slen ) THEN
@@ -2091,10 +2108,10 @@ CONTAINS
                    END IF
 
                    ! Find first empty space at "k2"
-                   k2 = k 
+                   k2 = k + 1
                    DO WHILE( k2 <= slen )
-                     k2 = k2 + 1
                      IF ( str(k2:k2) == ' ') EXIT
+                     k2 = k2 + 1
                    END DO
                    k2 = k2-1
 
@@ -2130,10 +2147,10 @@ CONTAINS
                  k = str_beg
 
                  ! Find first empty space at "k2"
-                 k2 = k 
+                 k2 = k + 1
                  DO WHILE( k2 <= slen )
-                   k2 = k2 + 1
                    IF ( str(k2:k2) == ' ') EXIT
+                   k2 = k2 + 1
                  END DO
                  k2 = k2-1
                                  
@@ -2572,9 +2589,9 @@ CONTAINS
       CHARACTER(LEN=256) :: txcmd
 
       character(len=256) :: elmer_home_env
-      CALL getenv("ELMER_HOME", elmer_home_env)
+      CALL get_environment_variable("ELMER_HOME", elmer_home_env)
 
-      !$OMP PARALLEL Shared(parenv, ModelName, elmer_home_env) Private(txcmd, ompthread, lstat) Default(none)
+      !$OMP PARALLEL Shared(mype, ModelName, elmer_home_env) Private(txcmd, ompthread, lstat) Default(none)
       !$OMP CRITICAL
       LuaState = lua_init()
       IF(.NOT. LuaState % Initialized) THEN
@@ -2583,7 +2600,7 @@ CONTAINS
 
       ! Store mpi task and omp thread ids in a table
       LSTAT = lua_dostring(LuaState, 'ELMER_PARALLEL = {}' // c_null_char)
-      write(txcmd,'(A,I0)') 'ELMER_PARALLEL["pe"] = ', parenv % mype
+      write(txcmd,'(A,I0)') 'ELMER_PARALLEL["pe"] = ',  mype
       lstat = lua_dostring(LuaState, txcmd // c_null_char)
 
       ompthread = 1
@@ -4222,6 +4239,8 @@ CONTAINS
       CALL Info(Caller,'Skipping restart for child mesh',Level=4)
       RETURN
     END IF
+
+    ALLOCATE(CHARACTER(MAX_STRING_LEN)::Row)
     
     ! This routine may be called either in Simulation section or from Solver section
     IF( PRESENT( SolverId ) ) THEN
@@ -4268,6 +4287,7 @@ CONTAINS
       CALL Info(Caller,'Number of variable to read is: '//I2S(j),Level=10)
       IF( ALLOCATED( ListVariableFound ) ) DEALLOCATE( ListVariableFound ) 
       ALLOCATE( ListVariableFound(j) )
+      ListVariableFound = .FALSE.
       CALL Info(Caller,'Reading only '//I2S(j)//' variables given by: "Restart Variable i"',Level=10)
     ELSE
       CALL Info(Caller,'Reading all variables (if not wanted use "Restart Variable i" )',Level=10)      
@@ -4332,7 +4352,6 @@ CONTAINS
     
     RestartFileOpen = .TRUE.
 
-    ALLOCATE(CHARACTER(MAX_STRING_LEN)::Row)
     READ( RestartUnit, '(A)', IOSTAT=iostat ) Row
     IF( iostat /= 0 ) THEN
       CALL Fatal(Caller,'Error reading header line!')
@@ -4552,7 +4571,7 @@ CONTAINS
       !-------------------------------
       LoadThis = .TRUE.
       
-      ! If list is give check that variable is on the list.
+      ! If list is given check that variable is on the list.
       !---------------------------------------------------------------------------
       IF( ListVariableCount > 0  ) THEN
         DO j=1,ListVariableCount
@@ -5113,11 +5132,13 @@ CONTAINS
 
       IF( ALLOCATED( Perm ) ) THEN
         IF( SIZE( Perm ) < nPerm ) THEN
-          CALL Warn(Caller,'Permutation vector too small?')
+          CALL Warn(Caller,'Permutation vector too small: '&
+              //I2S(SIZE(Perm))//' vs. '//I2S(nPerm))
           DEALLOCATE( Perm ) 
         END IF
         IF( SIZE( Perm ) > nPerm ) THEN
-          CALL Info(Caller,'Permutation vector too large?',Level=15)
+          CALL Info(Caller,'Permutation vector too large: '&
+              //I2S(SIZE(Perm))//' vs. '//I2S(nPerm),Level=15)
         END IF
       END IF
       IF( .NOT. ALLOCATED( Perm ) ) THEN
@@ -6131,7 +6152,7 @@ SUBROUTINE GetNodalElementSize(Model,expo,noweight,h)
 
       Solver % Matrix % ParMatrix % ParEnv % ActiveComm = &
                  Solver % Matrix % Comm
-      ParEnv = Solver % Matrix % ParMatrix % ParEnv
+      ParEnv => Solver % Matrix % ParMatrix % ParEnv
     END IF
   END IF
 

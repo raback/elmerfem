@@ -133,24 +133,18 @@ SUBROUTINE MagnetoDynamics2D( Model,Solver,dt,Transient ) ! {{{
 !------------------------------------------------------------------------------
 ! Local variables
 !------------------------------------------------------------------------------
-  LOGICAL :: AllocationsDone = .FALSE., Found
+  LOGICAL :: Found
   TYPE(Element_t), POINTER :: Element
   REAL(KIND=dp) :: Norm
-  INTEGER :: i,j,k,n, nb, nd, t, istat, Active, NonlinIter, iter, tind
+  INTEGER :: i,j,k,n, nb, nd, t, Active, NonlinIter, iter, tind
   TYPE(ValueList_t), POINTER :: BC
-  REAL(KIND=dp), ALLOCATABLE :: STIFF(:,:), LOAD(:), FORCE(:), POT(:)
   TYPE(Mesh_t),   POINTER :: Mesh
   TYPE(ValueList_t), POINTER :: SolverParams
   
   LOGICAL :: NewtonRaphson = .FALSE., CSymmetry, SkipDegenerate, &
       HandleAsm, MassAsm, ConstantMassInUse = .FALSE.
-  LOGICAL :: InitHandles, SliceAverage
-  INTEGER :: CoupledIter
-  TYPE(Variable_t), POINTER :: IterV, CoordVar
-
-  TYPE(Matrix_t),POINTER::CM
-  TYPE(GlobalHysteresisModel_t), POINTER :: ZirkaModel
-  CHARACTER(*), PARAMETER :: Caller = 'MagnetoDynamics2D'
+  LOGICAL :: SliceAverage
+  TYPE(Variable_t), POINTER :: CoordVar
 
   REAL(KIND=dp), ALLOCATABLE, SAVE :: MassValues(:)
 
@@ -158,6 +152,8 @@ SUBROUTINE MagnetoDynamics2D( Model,Solver,dt,Transient ) ! {{{
   LOGICAL, SAVE :: BasisFunctionsInUse = .FALSE.
   LOGICAL :: UseTorqueTol, UseNewtonRelax, ElectroDynamics
   REAL(KIND=dp) :: TorqueTol, TorqueErr, PrevTorque, Torque, NewtonRelax
+
+  CHARACTER(*), PARAMETER :: Caller = 'MagnetoDynamics2D'
   
 !------------------------------------------------------------------------------
 
@@ -222,26 +218,24 @@ SUBROUTINE MagnetoDynamics2D( Model,Solver,dt,Transient ) ! {{{
     END IF
 
     tind = 0
-    InitHandles = .TRUE.
-   
-!$omp parallel do private(Element,n,nd,nb,t,InitHandles)   
+    !$omp parallel do private(Element,n,nd,nb,t)   
     DO t=1,active
-       Element => GetActiveElement(t)
-       n  = GetElementNOFNodes(Element)
-       nd = GetElementNOFDOFs(Element)
-       nb = GetElementNOFBDOFs(Element)
-       IF( SkipDegenerate .AND. DegenerateElement( Element ) ) THEN
-         CALL Info(Caller,'Skipping degenerate element:'//I2S(t),Level=12)
-         CYCLE
-       END IF
-       IF( HandleAsm ) THEN
-         CALL LocalMatrixHandles(  Element, n, nd+nb, nb, InitHandles )
-       ELSE
-         CALL LocalMatrix(Element, n, nd)
-       END IF
+      Element => GetActiveElement(t)
+      n  = GetElementNOFNodes(Element)
+      nd = GetElementNOFDOFs(Element)
+      nb = GetElementNOFBDOFs(Element)
+      IF( SkipDegenerate .AND. DegenerateElement( Element ) ) THEN
+        CALL Info(Caller,'Skipping degenerate element:'//I2S(t),Level=12)
+        CYCLE
+      END IF
+      IF( HandleAsm ) THEN
+        CALL LocalMatrixHandles(  Element, n, nd+nb, nb )
+      ELSE
+        CALL LocalMatrix(Element, n, nd)
+      END IF
     END DO
-!$omp end parallel do
-
+    !$omp end parallel do  
+      
     CALL DefaultFinishBulkAssembly()
     
     Active = GetNOFBoundaryElements()
@@ -449,11 +443,6 @@ CONTAINS
      HaveRange = .TRUE.     
    ELSE
      rmean = ListGetConstReal( CurrentModel % Simulation,'Rotor Radius',CalcTorque)
-     rmean = ParallelReduction( rmean, 2 )
-     IF(.NOT. CalcTorque .AND. rmean > EPSILON(rmean) ) THEN
-       CALL ListAddConstReal( CurrentModel % Simulation,'Rotor Radius',rmean)
-       CalcTorque = .TRUE.
-     END IF
      rdiff = ListGetConstReal( CurrentModel % Simulation,'Rotor Air Gap Width',Found)
      IF(.NOT. Found ) rdiff = 1.0e-3 * rmean
      HaveRange = .FALSE.
@@ -781,6 +770,9 @@ CONTAINS
 !$omp threadprivate(Nodes)
     
 !------------------------------------------------------------------------------
+
+    IF( UseLocalMatrixCopy( Solver, Element % ElementIndex ) ) GOTO 10
+
     CALL GetElementNodes( Nodes,Element )
     STIFF = 0._dp
     JAC  = 0._dp
@@ -1028,7 +1020,7 @@ CONTAINS
         CALL Default1stOrderTime( MASS, STIFF, FORCE,UElement=Element, USolver=Solver )
       END IF
     END IF
-    CALL DefaultUpdateEquations( STIFF, FORCE,UElement=Element, USolver=Solver)
+10  CALL DefaultUpdateEquations( STIFF, FORCE,UElement=Element, USolver=Solver)
 
 !------------------------------------------------------------------------------
   END SUBROUTINE LocalMatrix
@@ -1038,18 +1030,17 @@ CONTAINS
 !------------------------------------------------------------------------------
 ! Assembly using handles. A little faster even for linear triangles, maybe 20%. 
 !------------------------------------------------------------------------------
-  SUBROUTINE LocalMatrixHandles( Element, n, nd, nb, InitHandles )
+  SUBROUTINE LocalMatrixHandles( Element, n, nd, nb )
 !------------------------------------------------------------------------------
     IMPLICIT NONE
     INTEGER, INTENT(IN) :: n, nd, nb
     TYPE(Element_t), POINTER :: Element
-    LOGICAL, INTENT(INOUT) :: InitHandles
 !------------------------------------------------------------------------------
     REAL(KIND=dp), POINTER, SAVE :: Basis(:), dBasisdx(:,:)
     REAL(KIND=dp), ALLOCATABLE, SAVE :: MASS(:,:), DAMP(:,:), STIFF(:,:), FORCE(:), POT(:)    
     REAL(KIND=dp) :: Nu0, Nu, weight, SourceAtIp, CondAtIp, DetJ, Mu, MuDer, Babs
     LOGICAL :: Stat,Found, HBCurve
-    INTEGER :: i,j,t,p,q,dim,m,allocstat
+    INTEGER :: t,p,q,m,allocstat
     TYPE(GaussIntegrationPoints_t) :: IP
     TYPE(Nodes_t), SAVE :: Nodes
     TYPE(ValueList_t), POINTER :: Material, PrevMaterial => NULL()
@@ -1059,18 +1050,19 @@ CONTAINS
     LOGICAL :: StrandedCoil
     TYPE(ValueHandle_t), SAVE :: SourceCoeff_h, CondCoeff_h, PermCoeff_h, &
         RelPermCoeff_h, RelucCoeff_h, Mag1Coeff_h, Mag2Coeff_h, CoilType_h
-
-    SAVE HBCurve, Nu0, PrevMaterial
+    INTEGER :: PrevElemInd = HUGE(PrevElemInd)
+    
+    SAVE HBCurve, Nu0, PrevMaterial, PrevElemInd
     
     !$omp threadprivate(Basis, dBasisdx, MASS, DAMP, STIFF, FORCE, POT, &
     !$omp               Nodes, Nu0, HBCurve, PrevMaterial, &
     !$omp               SourceCoeff_h, CondCoeff_h, PermCoeff_h, RelPermCoeff_h, &
-    !$omp               RelucCoeff_h, Mag1Coeff_h, Mag2Coeff_h, CoilType_h )
+    !$omp               RelucCoeff_h, Mag1Coeff_h, Mag2Coeff_h, CoilType_h, PrevElemInd )
     
 !------------------------------------------------------------------------------
 
-    ! This InitHandles flag might be false on threaded 1st call
-    IF( InitHandles ) THEN
+    ! The elements should be in growing order. Hence we initialize if we start the list.
+    IF( Element % ElementIndex < PrevElemInd ) THEN
       CALL ListInitElementKeyword( SourceCoeff_h,'Body Force','Current Density')
       CALL ListInitElementKeyword( CondCoeff_h,'Material','Electric Conductivity')
       CALL ListInitElementKeyword( PermCoeff_h,'Material','Permeability')
@@ -1084,10 +1076,9 @@ CONTAINS
         Nu0 = ListGetCReal( Model % Constants,'Permeability of Vacuum',Found)
       END IF
       IF( .NOT. Found ) Nu0 = PI * 4.0d-7
-      InitHandles = .FALSE.
     END IF
-
-
+    PrevElemInd = Element % ElementIndex
+    
     ! Allocate storage if needed
     IF (.NOT. ALLOCATED(MASS)) THEN
       m = Mesh % MaxElementDofs
@@ -1099,7 +1090,9 @@ CONTAINS
         ALLOCATE(Basis(m), dBasisdx(m,3))
       END IF
     END IF
-      
+    
+    IF( UseLocalMatrixCopy( Solver, Element % ElementIndex ) ) GOTO 20
+    
     Material => GetMaterial(Element)
     IF( .NOT. ASSOCIATED( Material, PrevMaterial ) ) THEN
       PrevMaterial => Material           
@@ -1254,10 +1247,10 @@ CONTAINS
       ELSE
         CALL DefaultUpdateMass(MASS,UElement=Element)
       END IF
-    END IF
+    END IF 
     CALL CondensateP( nd-nb, nb, STIFF, FORCE )
     
-    CALL DefaultUpdateEquations(STIFF,FORCE,UElement=Element) !, VecAssembly=VecAsm)
+20  CALL DefaultUpdateEquations(STIFF,FORCE,UElement=Element) !, VecAssembly=VecAsm)
 !------------------------------------------------------------------------------
   END SUBROUTINE LocalMatrixHandles
 !------------------------------------------------------------------------------
@@ -1310,11 +1303,11 @@ END SUBROUTINE ! }}}
     INTEGER :: n, nd
     TYPE(Element_t), POINTER :: Element
 !------------------------------------------------------------------------------
-    REAL(KIND=dp) :: Basis(nd),dBasisdx(nd,3),DetJ,LoadAtIP
+    REAL(KIND=dp) :: Basis(nd),DetJ
     LOGICAL :: Stat
     INTEGER :: i,p,q,t
     TYPE(GaussIntegrationPoints_t) :: IP
-    REAL(KIND=dp) :: STIFF(nd,nd), FORCE(nd), R(2,2,n), R_ip, &
+    REAL(KIND=dp) :: STIFF(nd,nd), FORCE(nd), R(2,2,n), &
             Inf_ip,Coord(3),Normal(3),mu,u,v
     TYPE(ValueList_t), POINTER :: Material
     TYPE(Element_t), POINTER :: Parent
@@ -1374,18 +1367,13 @@ END SUBROUTINE ! }}}
     INTEGER :: n, nd
     TYPE(Element_t), POINTER :: Element
 !------------------------------------------------------------------------------
-    REAL(KIND=dp) :: Basis(nd),dBasisdx(nd,3),DetJ,LoadAtIP
+    REAL(KIND=dp) :: Basis(nd),dBasisdx(nd,3),DetJ
     LOGICAL :: Stat, Found
-    INTEGER :: i,p,q,t
+    INTEGER :: t
     TYPE(GaussIntegrationPoints_t) :: IP
-    REAL(KIND=dp) :: STIFF(nd,nd), FORCE(nd), R(n), R_ip, &
-            Inf_ip,Coord(3),Normal(3),mu,u,v, AirGapLength(nd), &
-            AirGapMu(nd), AirGapL
-
-    TYPE(ValueList_t), POINTER :: Material
+    REAL(KIND=dp) :: STIFF(nd,nd), FORCE(nd), &
+            mu,AirGapLength(nd), AirGapMu(nd), AirGapL
     TYPE(ValueList_t), POINTER :: BC
-
-    TYPE(Element_t), POINTER :: Parent
     TYPE(Nodes_t) :: Nodes
     SAVE Nodes
     !$OMP THREADPRIVATE(Nodes)
@@ -1579,18 +1567,17 @@ SUBROUTINE MagnetoDynamics2DHarmonic( Model,Solver,dt,Transient )
 !------------------------------------------------------------------------------
 ! Local variables
 !------------------------------------------------------------------------------
-  LOGICAL :: AllocationsDone = .FALSE., Found, ElectroDynamics
+  LOGICAL :: Found, ElectroDynamics
   TYPE(Element_t),POINTER :: Element
   REAL(KIND=dp) :: Norm, omega
-  INTEGER :: i,j,k,ip,jp,n, nb, nd, t, istat, Active, iter, NonlinIter
+  INTEGER :: i,j,k,n, nd, t, Active, iter, NonlinIter
   TYPE(ValueList_t), POINTER :: BC
   TYPE(Mesh_t),   POINTER :: Mesh
   COMPLEX(KIND=dp), PARAMETER :: im=(0._dp,1._dp)
   LOGICAL, SAVE :: NewtonRaphson = .FALSE., CSymmetry, DoRestart, &
       SliceAverage, RestartDone = .FALSE.
-  INTEGER :: CoupledIter, TransientSolverInd
-  TYPE(Variable_t), POINTER :: IterV, CoordVar, LVar
-  TYPE(Matrix_t),POINTER::CM
+  INTEGER :: TransientSolverInd
+  TYPE(Variable_t), POINTER :: CoordVar, LVar
   TYPE(ValueList_t), POINTER :: Params
   CHARACTER(LEN=MAX_NAME_LEN) :: sname   
   CHARACTER(*), PARAMETER :: Caller = 'MagnetoDynamics2DHarmonic'
@@ -1745,142 +1732,6 @@ CONTAINS
 
 
 !------------------------------------------------------------------------------
-  SUBROUTINE InertialMoment(U,A,Element,n,nd)
-!------------------------------------------------------------------------------
-    INTEGER :: n,nd
-    REAL(KIND=dp)::U,a
-    TYPE(Element_t)::Element
-!------------------------------------------------------------------------------
-    REAL(KIND=dp) :: Basis(nd), DetJ,x,y,r,Density(n)
-    INTEGER :: t
-    LOGICAL :: stat,Found
-    TYPE(Nodes_t), SAVE :: Nodes
-    TYPE(GaussIntegrationPoints_t) :: IP
-    !$OMP THREADPRIVATE(Nodes)
-
-    Density(1:n) = GetReal(GetMaterial(),'Density',Found,UElement=Element)
-    IF(.NOT.Found) RETURN
-
-    CALL GetElementNodes( Nodes, Element )
-  
-    !Numerical integration:
-    !----------------------
-    IP = GaussPoints(Element)
-    DO t=1,IP % n
-      ! Basis function values & derivatives at the integration point:
-      !--------------------------------------------------------------
-      stat = ElementInfo( Element, Nodes, IP % U(t), IP % V(t), &
-                IP % W(t), detJ, Basis )
-
-      x = SUM(Nodes % x(1:n)*Basis(1:n))
-      y = SUM(Nodes % y(1:n)*Basis(1:n))
-      r = SQRT(x**2+y**2)
-      A = A + IP % s(t)*detJ
-      U = U + IP % s(t)*detJ*R*SUM(Density(1:n)*Basis(1:n))
-    END DO
-!------------------------------------------------------------------------------
-  END SUBROUTINE InertialMoment
-!------------------------------------------------------------------------------
-
-!------------------------------------------------------------------------------
-  SUBROUTINE Torque(U,Area,Element,n,nd)
-!------------------------------------------------------------------------------
-    INTEGER :: n,nd
-    REAL(KIND=dp) :: Area
-    REAL(KIND=dp)::U
-    TYPE(Element_t)::Element
-!------------------------------------------------------------------------------
-    REAL(KIND=dp) :: dBasisdx(nd,3),Basis(nd), DetJ, &
-             POT(2,nd),x,y,r,r0,r1
-    COMPLEX(KIND=dp)::POTC(nd),Br,Bp,Bx,By
-    REAL(KIND=dp)::BrRe,BpRe,BrIm,BpIm
-    INTEGER :: t
-    LOGICAL :: stat
-    TYPE(Nodes_t), SAVE :: Nodes
-    TYPE(GaussIntegrationPoints_t) :: IP
-
-    !$OMP THREADPRIVATE(Nodes)
-
-    r0 = GetCReal(GetBodyParams(),'r inner',Found)
-    r1 = GetCReal(GetBodyParams(),'r outer',Found)
-    IF (.NOT.Found) RETURN
-
-    CALL GetElementNodes( Nodes, Element )
-
-    x = SUM(Nodes % x(1:n))/n
-    y = SUM(Nodes % y(1:n))/n
-    r = SQRT(x**2+y**2)
-    IF (r<r0.OR.r>r1) RETURN
-
-    CALL GetLocalSolution(POT, UElement=Element)
-    POTC=POT(1,:)+im*POT(2,:)
-  
-    !Numerical integration:
-    !----------------------
-    IP = GaussPoints(Element)
-    DO t=1,IP % n
-      ! Basis function values & derivatives at the integration point:
-      !--------------------------------------------------------------
-      stat = ElementInfo( Element, Nodes, IP % U(t), IP % V(t), &
-                IP % W(t), detJ, Basis, dBasisdx )
-
-      x = SUM(Nodes % x(1:n)*Basis(1:n))
-      y = SUM(Nodes % y(1:n)*Basis(1:n))
-      r = SQRT(x**2+y**2)
-
-      Bx =  SUM(POTC*dBasisdx(:,2))
-      By = -SUM(POTC*dBasisdx(:,1))
-      Br =  x/r*Bx + y/r*By
-      Bp = -y/r*Bx + x/r*By
-      BrRe = REAL( Br ); BrIm = AIMAG( Br )
-      BpRe = REAL( Bp ); BpIm = AIMAG( Bp )
-
-      U = U + IP % s(t)*detJ*r*(BrRe*BpRe+BrIm*BpIm)/(2*PI*4.0d-7*(r1-r0))
-      Area = Area + IP % s(t)*detJ
-    END DO
-!------------------------------------------------------------------------------
-  END SUBROUTINE Torque
-!------------------------------------------------------------------------------
-
- 
-!------------------------------------------------------------------------------
-  SUBROUTINE Potential( U, A, Element,n,nd)
-!------------------------------------------------------------------------------
-    COMPLEX(KIND=dp) :: U
-    REAL(KIND=dp) :: A
-    INTEGER :: n, nd
-    TYPE(Element_t) :: Element
-
-    REAL(KIND=dp) :: Basis(nd), DetJ,POT(2,nd),Omega
-    COMPLEX(KIND=dp) ::  POTC(nd)
-    INTEGER :: t
-    LOGICAL :: stat
-    TYPE(Nodes_t), SAVE :: Nodes
-    TYPE(GaussIntegrationPoints_t) :: IP
-
-    CALL GetElementNodes( Nodes, Element )
-
-    CALL GetLocalSolution(POT, UElement=Element)
-    POTC = POT(1,:) + im*POT(2,:)
-    Omega = GetAngularFrequency(UElement=Element)
-
-    !Numerical integration:
-    !----------------------
-    IP = GaussPoints(Element)
-    DO t=1,IP % n
-      ! Basis function values & derivatives at the integration point:
-      !--------------------------------------------------------------
-      stat = ElementInfo( Element, Nodes, IP % U(t), IP % V(t), &
-          IP % W(t), detJ, Basis )
-      A = A + IP % s(t) * detJ
-      U = U + IP % s(t) * detJ * im*Omega*SUM(POTC*Basis)
-    END DO
-!------------------------------------------------------------------------------
-  END SUBROUTINE Potential
-!------------------------------------------------------------------------------
-
-
-!------------------------------------------------------------------------------
 ! This is monolithic lumping routine that has been optimized for speed.
 ! This way we need to evaluate the Basis functions only once for each element.
 ! This is modified version of the transient solver, this solver did not really
@@ -1888,7 +1739,7 @@ CONTAINS
 !------------------------------------------------------------------------------
  SUBROUTINE CalculateLumpedHarmonic()
 !------------------------------------------------------------------------------
-   REAL(KIND=dp) :: torq,TorqArea,IMoment,IA, xRe,xIm, Omega, &
+   REAL(KIND=dp) :: torq,TorqArea,IMoment,IA,Omega, &
        rinner,router,rmean,rdiff,ctorq,detJ,Weight,x,y,r,rho
    REAL(KIND=dp), ALLOCATABLE :: a(:),POT(:,:),Density(:)
    COMPLEX(KIND=dp), ALLOCATABLE :: POTC(:),U(:)
@@ -2518,11 +2369,11 @@ CONTAINS
     INTEGER :: n, nd
     TYPE(Element_t), POINTER :: Element
 !------------------------------------------------------------------------------
-    REAL(KIND=dp) :: Basis(nd),dBasisdx(nd,3),DetJ,LoadAtIP
+    REAL(KIND=dp) :: Basis(nd),DetJ
     LOGICAL :: Stat
     INTEGER :: i,p,q,t
     TYPE(GaussIntegrationPoints_t) :: IP
-    REAL(KIND=dp) :: R_ip, Inf_ip,Coord(3),Normal(3),mu,u,v
+    REAL(KIND=dp) :: Inf_ip,Coord(3),Normal(3),mu,u,v
     COMPLEX(KIND=dp) :: R(2,2,n)       
     COMPLEX(KIND=dp) :: STIFF(nd,nd), FORCE(nd)
     TYPE(ValueList_t), POINTER :: Material
@@ -2583,18 +2434,13 @@ CONTAINS
     INTEGER :: n, nd
     TYPE(Element_t), POINTER :: Element
 !------------------------------------------------------------------------------
-    REAL(KIND=dp) :: Basis(nd),dBasisdx(nd,3),DetJ,LoadAtIP
+    REAL(KIND=dp) :: Basis(nd),dBasisdx(nd,3),DetJ
     LOGICAL :: Stat, Found
-    INTEGER :: i,p,q,t
+    INTEGER :: i,t
     TYPE(GaussIntegrationPoints_t) :: IP
     COMPLEX(KIND=dp) :: STIFF(nd,nd), FORCE(nd)
-    REAL(KIND=dp) :: R(n), R_ip, Coord(3),Normal(3),mu,u,v,x,&
-        AirGapLength(nd), AirGapMu(nd), AirGapL
-
-    TYPE(ValueList_t), POINTER :: Material
+    REAL(KIND=dp) :: mu,x,AirGapLength(nd), AirGapMu(nd), AirGapL
     TYPE(ValueList_t), POINTER :: BC
-
-    TYPE(Element_t), POINTER :: Parent
     TYPE(Nodes_t) :: Nodes
     SAVE Nodes
     !$OMP THREADPRIVATE(Nodes)
@@ -2871,11 +2717,11 @@ SUBROUTINE Bsolver( Model,Solver,dt,Transient )
 !    Local variables
 !------------------------------------------------------------------------------
   TYPE(ValueList_t),POINTER :: SolverParams
-  CHARACTER(LEN=MAX_NAME_LEN) :: VarName, CondName
-  INTEGER :: i,j,k,dim,FluxDofs,firstmag,TotDofs
+  CHARACTER(LEN=MAX_NAME_LEN) :: VarName
+  INTEGER :: i,j,k,dim,FluxDofs,TotDofs
   LOGICAL :: ConstantBulkMatrix, ConstantBulkMatrixInUse
-  LOGICAL :: GotIt, Visited = .FALSE.
-  REAL(KIND=dp) :: Unorm, Totnorm, val
+  LOGICAL :: GotIt
+  REAL(KIND=dp) :: Unorm, Totnorm
   REAL(KIND=dp), ALLOCATABLE, TARGET :: ForceVector(:,:)
   REAL(KIND=dp), POINTER CONTIG :: SaveRHS(:)  
   TYPE(Variable_t), POINTER :: FluxSol, HeatingSol, JouleSol, AzSol
@@ -2883,14 +2729,9 @@ SUBROUTINE Bsolver( Model,Solver,dt,Transient )
               AverageBCompute, BodyICompute, BodyVolumesCompute = .FALSE., &
               CirCompVolumesCompute = .FALSE., HomogenizationParamCompute, &
               LorentzForceCompute = .FALSE.
-  TYPE(Matrix_t),POINTER::CM
-  REAL(KIND=dp) :: Omega
-  
   TYPE(Variable_t), POINTER :: CurrDensSol
   CHARACTER(*), PARAMETER :: Caller = 'BSolver'
 
-  
-  SAVE Visited
 
   CALL Warn(Caller,'This module is obsolete! USE MagnetoDynamicsCalcFields instead')
 
@@ -3051,7 +2892,7 @@ CONTAINS
   SUBROUTINE BulkAssembly()
 !------------------------------------------------------------------------------
        
-    INTEGER :: elem,t,i,j,k,p,q,n,nd, Rank, BodyId
+    INTEGER :: elem,t,i,j,k,p,q,n,nd,BodyId
     TYPE(GaussIntegrationPoints_t), TARGET :: IntegStuff
     TYPE(Nodes_t) :: Nodes
     TYPE(Element_t), POINTER :: Element
@@ -3060,7 +2901,7 @@ CONTAINS
     COMPLEX(KIND=dp) :: CondAtIp
     REAL(KIND=dp) :: Freq, FreqPower, FieldPower, ComponentLoss(2), LossCoeff, &
         ValAtIp, ValAtIpim, TotalLoss, x
-    LOGICAL :: Found, SetHeating
+    LOGICAL :: Found
     TYPE(ValueList_t), POINTER :: Material
 
     REAL(KIND=dp), ALLOCATABLE :: STIFF(:,:), FORCE(:,:)
@@ -3091,11 +2932,9 @@ CONTAINS
     REAL(KIND=DP) :: i_multiplier_re, i_multiplier_im, ModelDepth
     COMPLEX(KIND=dp) :: i_multiplier, Bx, By, Jz, LorentzForceDensX, &
         LorentzForceDensY
-    REAL(KIND=dp) :: ValueNorm
 
     INTEGER :: NofComponents=0, bid
     INTEGER, POINTER :: BodyIds(:)
-    REAL(KIND=DP) :: Vol
     CHARACTER(LEN=MAX_NAME_LEN) :: CompNumber, OutputComp
 
     LOGICAL :: StrandedHomogenization, FoundIm, StrandedCoil 
@@ -3464,7 +3303,7 @@ CONTAINS
           BAtIp(8) = AIMAG(imag_value)
           imag_value = CMPLX(BatIp(1), BatIp(3), KIND=dp)
           imag_value2 = CMPLX(BatIp(2), BatIp(4), KIND=dp)
-          BMagnAtIP = SQRT(ABS(imag_value**2._dp) + ABS(imag_value2**2._dp))
+          BMagnAtIP = SQRT(ABS(imag_value*imag_value) + ABS(imag_value2*imag_value2))
         END IF
         
         IF (LorentzForceCompute) THEN
@@ -3476,8 +3315,14 @@ CONTAINS
           By = CMPLX(BatIp(2), BatIp(4), KIND=dp)
           Jz = CMPLX(BatIp(7), BatIp(8), KIND=dp)
 
-          LorentzForceDensX = ModelDepth * Weight * By / Jz * ABS(Jz)**2._dp
-          LorentzForceDensY = -ModelDepth * Weight * Bx / Jz * ABS(Jz)**2._dp
+          IF(Jz/=0) THEN
+            LorentzForceDensX = ModelDepth * Weight * By / Jz * ABS(Jz)*ABS(Jz)
+            LorentzForceDensY = -ModelDepth * Weight * Bx / Jz * ABS(Jz)*ABS(Jz)
+          ELSE
+            LorentzForceDensX = 0
+            LorentzForceDensY = 0
+          END IF
+
           BodyLorentzForcesRe(1, BodyId) = BodyLorentzForcesRe(1, BodyId) + &
             REAL(LorentzForceDensX)
           BodyLorentzForcesRe(2, BodyId) = BodyLorentzForcesRe(2, BodyId) + &
@@ -4031,7 +3876,7 @@ CONTAINS
       REAL(KIND=dp) :: FaceBasis(n), P1Basis(n1), P2Basis(n2)
       REAL(KIND=dp) :: Jump(n1+n2), detJ, U, V, W, S
       LOGICAL :: Stat
-      INTEGER :: i, j, p, q, t, nFace, nParent
+      INTEGER :: i, j, p, q, t
       TYPE(GaussIntegrationPoints_t) :: IntegStuff
 
       TYPE(Nodes_t) :: FaceNodes, P1Nodes, P2Nodes

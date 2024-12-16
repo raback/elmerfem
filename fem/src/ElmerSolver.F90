@@ -218,8 +218,8 @@
 #endif
          END IF
        END IF
-
        ParEnv % NumberOfThreads = nthreads
+
        
        IF( .NOT. Silent ) THEN
          CALL Info( 'MAIN', ' ')
@@ -287,6 +287,9 @@
 #endif
 #ifdef HAVE_AMGX
          CALL Info( 'MAIN', ' AMGX library linked in.' )
+#endif
+#ifdef HAVE_ROCALUTION
+         CALL Info( 'MAIN', ' ROCALUTION library linked in.' )
 #endif
          CALL Info( 'MAIN', '=============================================================')
        END IF
@@ -387,6 +390,11 @@
          CurrentModel => LoadModel(ModelName,.FALSE.,ParEnv % PEs,ParEnv % MyPE,MeshIndex)
          IF(.NOT.ASSOCIATED(CurrentModel)) EXIT
 
+
+         IF( nthreads > 1 ) THEN
+           MaxOutputThread = ListGetInteger( CurrentModel % Simulation,'Max Output Thread',GotIt)
+           IF(.NOT. GotIt) MaxOutputThread = 1
+         END IF
          
          !----------------------------------------------------------------------------------
          ! Set namespace searching mode
@@ -837,26 +845,15 @@
      !--------------------------------------------------------------------
      SUBROUTINE CreateExtrudedMesh()
 
-       INTEGER :: ExtrudeLayers
        LOGICAL :: SliceVersion
 
        IF(.NOT. ListCheckPrefix(CurrentModel % Simulation,'Extruded Mesh') ) RETURN
        
-       ExtrudeLayers = GetInteger(CurrentModel % Simulation,'Extruded Mesh Levels',Found)-1 
-       IF( .NOT. Found ) THEN
-         ExtrudeLayers = GetInteger(CurrentModel % Simulation,'Extruded Mesh Layers',Found)
-       END IF
-       IF(.NOT. Found ) RETURN
-       
-       IF(ExtrudeLayers < 2) THEN
-         CALL Fatal('MAIN','There must be at least two "Extruded Mesh Layers"!')
-       END IF
-
        SliceVersion = GetLogical(CurrentModel % Simulation,'Extruded Mesh Slices',Found )              
        IF( SliceVersion ) THEN
-         ExtrudedMesh => MeshExtrudeSlices(CurrentModel % Meshes, ExtrudeLayers-1)
+         ExtrudedMesh => MeshExtrudeSlices(CurrentModel % Meshes, CurrentModel % Simulation )
        ELSE
-         ExtrudedMesh => MeshExtrude(CurrentModel % Meshes, ExtrudeLayers-1)
+         ExtrudedMesh => MeshExtrude(CurrentModel % Meshes, CurrentModel % Simulation)
        END IF
          
        ! Make the solvers point to the extruded mesh, not the original mesh
@@ -3387,6 +3384,7 @@
 
      BLOCK
        TYPE(Solver_t), POINTER :: iSolver
+
        DO i=1,CurrentModel % NumberOfSolvers 
          iSolver => CurrentModel % Solvers(i)
          IF( iSolver % NumberOfConstraintModes > 0 ) THEN
@@ -3396,7 +3394,6 @@
          END IF
        END DO
      END BLOCK
-     
      
 100  CONTINUE
 

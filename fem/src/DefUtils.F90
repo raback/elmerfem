@@ -51,6 +51,7 @@ MODULE DefUtils
 
    USE Adaptive
    USE MeshGenerate 
+   USE ElementUtils
    USE SolverUtils
 
    IMPLICIT NONE
@@ -100,6 +101,10 @@ MODULE DefUtils
      MODULE PROCEDURE GetScalarLocalEigenmode, GetVectorLocalEigenmode
    END INTERFACE
 
+   INTERFACE GetLocalConsmode
+     MODULE PROCEDURE GetScalarLocalConsmode, GetVectorLocalConsmode
+   END INTERFACE
+
    INTEGER, ALLOCATABLE, TARGET, PRIVATE :: IndexStore(:), VecIndexStore(:)
    REAL(KIND=dp), ALLOCATABLE, TARGET, PRIVATE  :: ValueStore(:)
    !$OMP THREADPRIVATE(IndexStore, VecIndexStore, ValueStore)
@@ -110,7 +115,7 @@ MODULE DefUtils
    ! TODO: Get actual values for these from mesh
    INTEGER, PARAMETER, PRIVATE :: ISTORE_MAX_SIZE = 1024
    INTEGER, PARAMETER, PRIVATE :: VSTORE_MAX_SIZE = 1024
-   PRIVATE :: GetIndexStore, GetVecIndexStore, GetValueStore
+   PRIVATE :: GetIndexStore, GetPermIndexStore, GetValueStore
 CONTAINS
 
 
@@ -163,7 +168,7 @@ CONTAINS
     ind => IndexStore
   END FUNCTION GetIndexStore
 
-  FUNCTION GetVecIndexStore() RESULT(ind)
+  FUNCTION GetPermIndexStore() RESULT(ind)
     IMPLICIT NONE
     INTEGER, POINTER CONTIG :: ind(:)
     INTEGER :: istat
@@ -171,11 +176,11 @@ CONTAINS
     IF ( .NOT. ALLOCATED(VecIndexStore) ) THEN
       ALLOCATE( VecIndexStore(ISTORE_MAX_SIZE), STAT=istat )
       VecIndexStore = 0
-      IF ( istat /= 0 ) CALL Fatal( 'GetVecIndexStore', &
+      IF ( istat /= 0 ) CALL Fatal( 'GetPermIndexStore', &
               'Memory allocation error.' )
     END IF
     ind => VecIndexStore
-  END FUNCTION GetVecIndexStore
+  END FUNCTION GetPermIndexStore
 
   FUNCTION GetValueStore(n) RESULT(val)
     IMPLICIT NONE
@@ -910,34 +915,35 @@ CONTAINS
 
      Element => GetCurrentElement(UElement)
 
-     IF ( ASSOCIATED( Variable ) ) THEN
-        Indexes => GetIndexStore()
-        IF ( ASSOCIATED(Variable % Solver ) ) THEN
-          n = GetElementDOFs( Indexes, Element, Variable % Solver )
-        ELSE
-          n = GetElementDOFs( Indexes, Element, Solver )
-        END IF
-        n = MIN( n, SIZE(x) )
+     Indexes => GetIndexStore()
+     IF ( ASSOCIATED(Variable % Solver ) ) THEN
+       n = GetElementDOFs( Indexes, Element, Variable % Solver )
+     ELSE
+       n = GetElementDOFs( Indexes, Element, Solver )
+     END IF
+     n = MIN( n, SIZE(x) )
 
-        Values => Variable % EigenVectors( :, NoEigen )
+     IF (SIZE(Variable % EigenVectors,1) < NoEigen) THEN
+       CALL Fatal('GetScalarLocalEigenmode', 'Fewer eigenfunctions available than requested')
+     END IF
+     Values => Variable % EigenVectors( NoEigen, :)
 
-        IF ( ASSOCIATED( Variable % Perm ) ) THEN
-          DO i=1,n
-            j = Indexes(i)
-            IF ( j>0 .AND. j<= SIZE(Variable % Perm)) THEN
-              j = Variable % Perm(j)
-              IF ( j>0 ) THEN 
-                IF ( IsComplex ) THEN
-                  x(i) = AIMAG(Values(j))
-                ELSE
-                  x(i) =  REAL(Values(j))
-                END IF
-              END IF
-            END IF
-          END DO
-        ELSE
-	  x(1:n) = Values(Indexes(1:n))
-        END IF
+     IF ( ASSOCIATED( Variable % Perm ) ) THEN
+       DO i=1,n
+         j = Indexes(i)
+         IF ( j>0 .AND. j<= SIZE(Variable % Perm)) THEN
+           j = Variable % Perm(j)
+           IF ( j>0 ) THEN 
+             IF ( IsComplex ) THEN
+               x(i) = AIMAG(Values(j))
+             ELSE
+               x(i) =  REAL(Values(j))
+             END IF
+           END IF
+         END IF
+       END DO
+     ELSE
+       x(1:n) = Values(Indexes(1:n))
      END IF
   END SUBROUTINE GetScalarLocalEigenmode
 
@@ -978,45 +984,211 @@ CONTAINS
 
      Element => GetCurrentElement(UElement)
 
-     IF ( ASSOCIATED( Variable ) ) THEN
-        Indexes => GetIndexStore()
-        IF ( ASSOCIATED(Variable % Solver ) ) THEN
-          n = GetElementDOFs( Indexes, Element, Variable % Solver )
-        ELSE
-          n = GetElementDOFs( Indexes, Element, Solver )
-        END IF
-        n = MIN( n, SIZE(x) )
+     Indexes => GetIndexStore()
+     IF ( ASSOCIATED(Variable % Solver ) ) THEN
+       n = GetElementDOFs( Indexes, Element, Variable % Solver )
+     ELSE
+       n = GetElementDOFs( Indexes, Element, Solver )
+     END IF
+     n = MIN( n, SIZE(x) )
 
-        Values => Variable % EigenVectors( :, NoEigen )
+     IF (SIZE(Variable % EigenVectors,1) < NoEigen) THEN
+       CALL Fatal('GetVectorLocalEigenmode', 'Fewer eigenfunctions available than requested')
+     END IF
+     Values => Variable % EigenVectors( NoEigen, : )
 
-        DO i=1,Variable % DOFs
-           IF ( ASSOCIATED( Variable % Perm ) ) THEN
-             DO j=1,n
-               k = Indexes(j)
-               IF ( k>0 .AND. k<= SIZE(Variable % Perm)) THEN
-                 k = Variable % Perm(k)
-                 IF ( k>0 ) THEN
-                   IF ( IsComplex ) THEN
-                     x(i,j) = AIMAG(Values(Variable % DOFs*(k-1)+i))
-                   ELSE
-                     x(i,j) =  REAL(Values(Variable % DOFs*(k-1)+i))
-                   END IF
-                 END IF
+     DO i=1,Variable % DOFs
+       IF ( ASSOCIATED( Variable % Perm ) ) THEN
+         DO j=1,n
+           k = Indexes(j)
+           IF ( k>0 .AND. k<= SIZE(Variable % Perm)) THEN
+             k = Variable % Perm(k)
+             IF ( k>0 ) THEN
+               IF ( IsComplex ) THEN
+                 x(i,j) = AIMAG(Values(Variable % DOFs*(k-1)+i))
+               ELSE
+                 x(i,j) =  REAL(Values(Variable % DOFs*(k-1)+i))
                END IF
-             END DO
-           ELSE
-              DO j=1,n
-                IF( IsComplex ) THEN
-                  x(i,j) = AIMAG( Values(Variable % DOFs*(Indexes(j)-1)+i) )
-                ELSE
-                  x(i,j) = REAL( Values(Variable % DOFs*(Indexes(j)-1)+i) )
- 	        END IF
-              END DO
+             END IF
            END IF
          END DO
-     END IF
+       ELSE
+         DO j=1,n
+           IF( IsComplex ) THEN
+             x(i,j) = AIMAG( Values(Variable % DOFs*(Indexes(j)-1)+i) )
+           ELSE
+             x(i,j) = REAL( Values(Variable % DOFs*(Indexes(j)-1)+i) )
+           END IF
+         END DO
+       END IF
+     END DO
   END SUBROUTINE GetVectorLocalEigenmode
-    
+
+
+
+!> Returns the desired constraint mode as a scalar field in an element
+  SUBROUTINE GetScalarLocalConsmode( x,name,UElement,USolver,NoMode)
+    REAL(KIND=dp) :: x(:)
+    CHARACTER(LEN=*), OPTIONAL :: name
+    TYPE(Solver_t)  , OPTIONAL, TARGET :: USolver
+    TYPE(Element_t),  OPTIONAL, TARGET :: UElement
+    INTEGER, OPTIONAL :: NoMode
+
+    REAL(KIND=dp), POINTER :: Values(:)
+    TYPE(Variable_t), POINTER :: Variable
+    TYPE(Solver_t)  , POINTER :: Solver
+    TYPE(Element_t),  POINTER :: Element
+
+    INTEGER :: i, j, k, l, n
+    INTEGER, POINTER :: Indexes(:)
+
+    Solver => CurrentModel % Solver
+    IF ( PRESENT(USolver) ) Solver => USolver
+
+    x = 0.0d0
+
+    IF ( PRESENT(name) ) THEN
+      Variable => VariableGet( Solver % Mesh % Variables, name )
+    ELSE
+      Variable => Solver % Variable
+    END IF
+    IF ( .NOT. ASSOCIATED( Variable ) ) RETURN
+    IF ( .NOT. ASSOCIATED( Variable % ConstraintModes ) ) RETURN
+
+    Element => GetCurrentElement(UElement)
+
+    Indexes => GetIndexStore()
+    IF ( ASSOCIATED(Variable % Solver ) ) THEN
+      n = GetElementDOFs( Indexes, Element, Variable % Solver )
+    ELSE
+      n = GetElementDOFs( Indexes, Element, Solver )
+    END IF
+    n = MIN( n, SIZE(x) )
+
+    IF (SIZE(Variable % ConstraintModes,1) < NoMode) THEN
+      CALL Fatal('GetScalarLocalConsmode', 'Fewer constraint modes available than requested')
+    END IF
+    Values => Variable % ConstraintModes( NoMode, :)
+
+
+    IF ( ASSOCIATED( Variable % Perm ) ) THEN
+      IF( Variable % PeriodicFlipActive ) THEN
+        DO i=1,n
+          j = Indexes(i)
+          IF ( j>0 .AND. j<=SIZE(Variable % Perm) ) THEN
+            k = Variable % Perm(j)
+            IF ( k>0 ) THEN
+              x(i) = Values(k)
+              IF( CurrentModel % Mesh % PeriodicFlip(j) ) x(i) = -x(i)
+            END IF
+          END IF
+        END DO
+      ELSE
+        DO i=1,n
+          j = Indexes(i)
+          IF ( j>0 .AND. j<=SIZE(Variable % Perm) ) THEN
+            j = Variable % Perm(j)
+            IF ( j>0 ) THEN
+              x(i) = Values(j)
+            END IF
+          END IF
+        END DO
+      END IF
+    ELSE
+      DO i=1,n
+        j = Indexes(i)
+        IF ( j>0 .AND. j<=SIZE(Variable % Values) ) THEN
+          x(i) = Values(Indexes(i))
+        END IF
+      END DO
+    END IF
+
+  END SUBROUTINE GetScalarLocalConsmode
+
+
+
+!> Returns the desired constraint mode as a vector field in an element
+  SUBROUTINE GetVectorLocalConsmode( x,name,UElement,USolver,NoMode)
+    REAL(KIND=dp) :: x(:,:)
+    CHARACTER(LEN=*), OPTIONAL :: name
+    TYPE(Solver_t),  OPTIONAL, TARGET :: USolver
+    TYPE(Element_t), OPTIONAL, TARGET :: UElement
+    INTEGER, OPTIONAL :: NoMode
+
+    TYPE(Variable_t), POINTER :: Variable
+    TYPE(Solver_t)  , POINTER :: Solver
+    TYPE(Element_t),  POINTER :: Element
+
+    INTEGER :: i, j, k, l, n
+    INTEGER, POINTER :: Indexes(:)
+    REAL(KIND=dp), POINTER ::  Values(:)
+
+    Solver => CurrentModel % Solver
+    IF ( PRESENT(USolver) ) Solver => USolver
+
+    x = 0.0d0
+
+    IF ( PRESENT(name) ) THEN
+      Variable => VariableGet( Solver % Mesh % Variables, name )
+    ELSE
+      Variable => Solver % Variable
+    END IF
+    IF ( .NOT. ASSOCIATED( Variable ) ) RETURN
+    IF ( .NOT. ASSOCIATED( Variable % ConstraintModes ) ) RETURN
+
+    Element => GetCurrentElement(UElement)
+
+    Indexes => GetIndexStore()
+    IF ( ASSOCIATED(Variable % Solver ) ) THEN
+      n = GetElementDOFs( Indexes, Element, Variable % Solver )
+    ELSE
+      n = GetElementDOFs( Indexes, Element, Solver )
+    END IF
+    n = MIN( n, SIZE(x) )
+
+    IF (SIZE(Variable % ConstraintModes,1) < NoMode) THEN
+      CALL Fatal('GetVectorLocalConsmode', 'Fewer constraint modes available than requested')
+    END IF
+    Values => Variable % ConstraintModes( NoMode, :)
+
+    DO i=1,Variable % DOFs
+      IF ( ASSOCIATED( Variable % Perm ) ) THEN
+        IF( Variable % PeriodicFlipActive ) THEN
+          DO j=1,n
+            k = Indexes(j)
+            IF ( k>0 .AND. k<=SIZE(Variable % Perm) ) THEN
+              l = Variable % Perm(k)
+              IF( l>0 ) THEN
+                x(i,j) = Values(Variable % DOFs*(l-1)+i)
+                IF( CurrentModel % Mesh % PeriodicFlip(k) ) x(i,j) = -x(i,j)
+              END IF
+            END IF
+          END DO
+        ELSE           
+          DO j=1,n
+            k = Indexes(j)
+            IF ( k>0 .AND. k<=SIZE(Variable % Perm) ) THEN
+              l = Variable % Perm(k)
+              IF (l>0) THEN
+                x(i,j) = Values(Variable % DOFs*(l-1)+i)
+              END IF
+            END IF
+          END DO
+        END IF
+      ELSE
+        DO j=1,n
+          IF ( Variable % DOFs*(Indexes(j)-1)+i <= &
+              SIZE( Variable % Values ) ) THEN
+            x(i,j) = Values(Variable % DOFs*(Indexes(j)-1)+i)
+          END IF
+        END DO
+      END IF
+    END DO
+
+  END SUBROUTINE GetVectorLocalConsmode
+
+
+  
 
   FUNCTION DefaultVariableGet( Name, ThisOnly, USolver ) RESULT ( Var )
 
@@ -1103,14 +1275,14 @@ CONTAINS
 
 
 !> Returns a logical flag by its name if found in the list structure, otherwise false
-  FUNCTION GetLogical( List, Name, Found ) RESULT(l)
+  FUNCTION GetLogical( List, Name, Found, UnfoundFatal, DefValue ) RESULT(l)
      TYPE(ValueList_t), POINTER :: List
      CHARACTER(LEN=*) :: Name
-     LOGICAL, OPTIONAL :: Found
+     LOGICAL, OPTIONAL :: Found, UnfoundFatal, DefValue
 
      LOGICAL :: l
 
-     l = ListGetLogical( List, Name, Found )
+     l = ListGetLogical( List, Name, Found, UnfoundFatal, DefValue )
   END FUNCTION GetLogical
 
 
@@ -1284,7 +1456,9 @@ CONTAINS
        IF( ASSOCIATED(Parent) ) THEN
 
          GotMat = .FALSE.
-         IF( Parent % BodyId > 0 .AND. Parent % BodyId <= CurrentModel % NumberOfBodies ) THEN
+         IF( Parent % BodyId == 0) THEN
+           CYCLE
+         ELSE IF( Parent % BodyId <= CurrentModel % NumberOfBodies ) THEN
            mat_id = ListGetInteger( CurrentModel % Bodies(Parent % BodyId) % Values,'Material',GotMat)
          ELSE
            CALL Warn('GetParentMatProp','Invalid parent BodyId '//I2S(Parent % BodyId)//&
@@ -3015,7 +3189,16 @@ CONTAINS
    ELSE
      Solver => CurrentModel % solver
    END IF
+   
+   ! This is now the default global time integration routine but the old hack may still be called
+   !---------------------------------------------------------------------------------------------
+   IF( .NOT. ListGetLogical( Solver % Values,'Old Global Time Integration',Found ) ) THEN
+     CALL Add2ndOrderTime_CRS( Solver % Matrix, Solver % Matrix % rhs, &
+         Solver % dt, Solver % Variable % PrevValues, Solver )
+     RETURN
+   END IF
 
+   
    IF ( .NOT.ASSOCIATED(Solver % Variable % Values, SaveValues) ) THEN
       IF ( ALLOCATED(STIFF) ) DEALLOCATE( STIFF,MASS,DAMP,X )
       n = 0
@@ -3205,7 +3388,7 @@ CONTAINS
      REAL(KIND=dp) :: dt
      LOGICAL :: Transient, Found, alloc_parenv
 
-     TYPE(ParEnv_t) :: SParEnv
+     TYPE(ParEnv_t), POINTER :: SParEnv
 
      INTERFACE
        SUBROUTINE SolverActivate_x(Model,Solver,dt,Transient)
@@ -3246,11 +3429,11 @@ CONTAINS
        END IF
          
        IF(ParEnv % PEs>1) THEN
-         SParEnv = ParEnv
+         SParEnv => ParEnv
 
          IF(ASSOCIATED(SlaveSolver % Matrix)) THEN
            IF(ASSOCIATED(SlaveSolver % Matrix % ParMatrix) ) THEN
-             ParEnv = SlaveSolver % Matrix % ParMatrix % ParEnv
+             ParEnv => SlaveSolver % Matrix % ParMatrix % ParEnv
            ELSE
              ParEnv % ActiveComm = SlaveSolver % Matrix % Comm
            END IF
@@ -3263,7 +3446,7 @@ CONTAINS
        CALL SolverActivate_x( CurrentModel,SlaveSolver,dt,Transient)
 
        IF(ParEnv % PEs>1) THEN
-         ParEnv = SParEnv
+         ParEnv => SParEnv
        END IF
      END DO
      iterV % Values = iter       
@@ -3357,7 +3540,7 @@ CONTAINS
      TYPE(Solver_t), POINTER :: Solver
      LOGICAL :: Found
      TYPE(ValueList_t), POINTER :: Params
-     INTEGER :: i,n
+     INTEGER :: i,j,n
      
      IF ( PRESENT( USolver ) ) THEN
        Solver => USolver
@@ -3385,6 +3568,15 @@ CONTAINS
      CALL DefaultSlaveSolvers(Solver,'Pre Solvers')
 
      IF( ListGetLogical(Params,'Local Matrix Storage',Found ) ) THEN
+       IF(.NOT. ASSOCIATED(Solver % InvActiveElements) ) THEN
+         ALLOCATE( Solver % InvActiveElements( Solver % Mesh % NumberOfBulkElements &
+             + Solver % Mesh % NumberOFBoundaryElements ) )         
+         Solver % InvActiveElements = 0
+         DO i=1,Solver % NumberOfActiveElements
+           Solver % InvActiveElements( Solver % ActiveElements(i) ) = i
+         END DO
+       END IF
+
        n = Solver % NumberOfActiveElements
        IF(ASSOCIATED(Solver % LocalSystem)) THEN
          IF(SIZE(Solver % LocalSystem) < n ) DEALLOCATE(Solver % LocalSystem)
@@ -3395,17 +3587,21 @@ CONTAINS
          ! If the stiffness matrix is constant the 1st element gives stiffness matrix for all!
          ! This could be inhereted differently too for splitted meshes, for example. 
          IF( ListGetLogical( Params,'Local Matrix Identical', Found )  ) THEN
+           CALL Info('DefaultStart','Assuming all elements to be identical!')
            Solver % LocalSystem(1:n) % eind = 1         
-         END IF                    
-       END IF
-
-       IF(.NOT. ASSOCIATED(Solver % InvActiveElements) ) THEN
-         ALLOCATE( Solver % InvActiveElements( Solver % Mesh % NumberOfBulkElements &
-             + Solver % Mesh % NumberOFBoundaryElements ) )         
-         Solver % InvActiveElements = 0
-         DO i=1,Solver % NumberOfActiveElements
-           Solver % InvActiveElements( Solver % ActiveElements(i) ) = i
-         END DO
+         ELSE IF( ListGetLogical( Params,'Local Matrix Identical Bodies', Found )  ) THEN
+           CALL Info('DefaultStart','Assuming all elements to be identical within bodies!')
+           BLOCK
+             INTEGER, ALLOCATABLE :: Body1st(:)             
+             ALLOCATE(Body1st(CurrentModel % NumberOfBodies))
+             Body1st = 0
+             DO i=1,Solver % NumberOfActiveElements
+               j = Solver % Mesh % Elements(Solver % ActiveElements(i)) % BodyId
+               IF(Body1st(j) == 0) Body1st(j) = i
+               Solver % LocalSystem(i) % eind = Body1st(j)
+             END DO
+           END BLOCK
+         END IF
        END IF
        
        Solver % LocalSystemMode = 1
@@ -3423,53 +3619,74 @@ CONTAINS
 !------------------------------------------------------------------------------
      TYPE(Solver_t), OPTIONAL, TARGET, INTENT(IN) :: USolver
      TYPE(Solver_t), POINTER :: Solver
+     TYPE(ValueList_t), POINTER :: Params
+     CHARACTER(:), ALLOCATABLE :: str
      LOGICAL :: Found
-
+     
      IF ( PRESENT( USolver ) ) THEN
        Solver => USolver
      ELSE
        Solver => CurrentModel % Solver
      END IF
 
+     Params => Solver % Values
+
+     IF ( ListGetLogical( Params,'Linear System Save',Found )) THEN
+       str = GetString( Params,'Linear System Save Slot', Found )
+       IF(Found .AND. str == 'finish') THEN
+         CALL SaveLinearSystem( Solver ) 
+       END IF
+     END IF
+             
      ! One can run postprocessing solver in this slot.
      !-----------------------------------------------------------------------------
      CALL DefaultSlaveSolvers(Solver,'Post Solvers')
 
-     IF( ListGetLogical( Solver % Values,'Apply Explicit Control', Found )) THEN
+     IF( ListGetLogical( Params,'Apply Explicit Control', Found )) THEN
        CALL ApplyExplicitControl( Solver )
      END IF
 
      IF( Solver % NumberOfConstraintModes > 0 ) THEN
        ! If we have a frozen stat then the nonlinear system loop is used to find that frozen state
        ! and we perform the linearized constraint modes analysis at the end. 
-       IF( ListGetLogical(Solver % Values,'Constraint Modes Analysis Frozen',Found ) ) THEN
+       IF( ListGetLogical(Params,'Constraint Modes Analysis Frozen',Found ) ) THEN
          BLOCK 
            INTEGER :: n
            REAL(KIND=dp) :: Norm
            REAL(KIND=dp), ALLOCATABLE :: xtmp(:), btmp(:)
-           REAL(KIND=dp), POINTER :: rhs(:)
 
-           CALL ListAddLogical(Solver % Values,'Constraint Modes Analysis Frozen',.FALSE.)
+           CALL ListAddLogical(Params,'Constraint Modes Analysis Frozen',.FALSE.)
+           CALL ListAddLogical(Params,'Skip Compute Nonlinear Change',.TRUE.)
+           
            n = SIZE(Solver % Matrix % rhs)
-           rhs => Solver % Matrix % rhs           
            ALLOCATE(xtmp(n),btmp(n))
-           xtmp = 0.0_dp; btmp = 0.0_dp
-           CALL SolveSystem( Solver % Matrix, ParMatrix, btmp, xtmp, Norm,Solver % Variable % DOFs,Solver )
-           CALL ListAddLogical(Solver % Values,'Constraint Modes Analysis Frozen',.TRUE.)
+
+           btmp = Solver % Matrix % rhs
+           xtmp = Solver % Variable % Values 
+
+           Solver % Matrix % rhs = 0.0_dp
+           CALL SolveSystem( Solver % Matrix, ParMatrix, Solver % Matrix % rhs, &
+               Solver % Variable % Values, Norm, Solver % Variable % DOFs,Solver )
+           
+           CALL ListAddLogical(Params,'Constraint Modes Analysis Frozen',.TRUE.)
+           CALL ListAddLogical(Params,'Skip Compute Nonlinear Change',.FALSE.)
+
+           Solver % Matrix % rhs = btmp 
+           Solver % Variable % Values = xtmp
+           DEALLOCATE(xtmp,btmp)
          END BLOCK
        END IF
          
-       IF( ListGetLogical( Solver % Values,'Nonlinear System Constraint Modes', Found ) ) THEN
+       IF( ListGetLogical( Params,'Nonlinear System Constraint Modes', Found ) ) THEN
          CALL FinalizeLumpedMatrix( Solver )            
        END IF
      END IF
 
-     IF( ListGetLogical( Solver % Values,'MMG Remesh', Found ) ) THEN
+     IF( ListGetLogical( Params,'MMG Remesh', Found ) ) THEN
        CALL Remesh(CurrentModel,Solver)
      END IF
-     
-     CALL Info('DefaultFinish','Finished solver: '//&         
-         GetString(Solver % Values,'Equation'),Level=8)
+
+     CALL Info('DefaultFinish','Finished solver: '//GetString(Params,'Equation'),Level=8)
      
 !------------------------------------------------------------------------------
    END SUBROUTINE DefaultFinish
@@ -3854,61 +4071,57 @@ CONTAINS
        END IF
 #else
        MCAsm = .TRUE.
-#endif       
-       Indexes => GetIndexStore()
-       n = GetElementDOFs( Indexes, Element, Solver )
-       
-       PermIndexes => GetVecIndexStore()
-       ! Get permuted indices
-!DIR$ IVDEP
-       DO j=1,n
-         PermIndexes(j) = Solver % Variable % Perm(Indexes(j))
-       END DO
-
-       IF( Solver % LocalSystemMode > 0 ) THEN
-         CALL UseLocalMatrixStorage( Solver, n * x % dofs, G, F, ElemInd = Element % ElementIndex )
-       END IF
-       
-       ! If we have any antiperiodic entries we need to check them all!
-       IF( Solver % PeriodicFlipActive ) THEN
-         CALL FlipPeriodicLocalMatrix( Solver, n, Indexes, x % dofs, G )
-         CALL FlipPeriodicLocalForce( Solver, n, Indexes, x % dofs, f )
-       END IF
-       
-       CALL UpdateGlobalEquationsVec( A, G, b, f, n, &
-               x % DOFs, PermIndexes, &
-               UElement=Element, MCAssembly=MCAsm )
+#endif
      ELSE
-       Indexes => GetIndexStore()
-       n = GetElementDOFs( Indexes, Element, Solver )
-
-       IF( Solver % LocalSystemMode > 0 ) THEN
-         CALL UseLocalMatrixStorage( Solver, n * x % dofs, G, F, ElemInd = Element % ElementIndex )
-       END IF
-       
-       ! If we have any antiperiodic entries we need to check them all!
-       IF( Solver % PeriodicFlipActive ) THEN
-         CALL FlipPeriodicLocalMatrix( Solver, n, Indexes, x % dofs, G )
-         CALL FlipPeriodicLocalForce( Solver, n, Indexes, x % dofs, f )
-       END IF
-       
-       IF(Solver % DirectMethod == DIRECT_PERMON) THEN
-         CALL UpdateGlobalEquations( A,G,b,f,n,x % DOFs, &
-                              x % Perm(Indexes(1:n)), UElement=Element )
-         CALL UpdatePermonMatrix( A, G, n, x % DOFs, x % Perm(Indexes(1:n)) )
-       ELSE
-         CALL UpdateGlobalEquations( A,G,b,f,n,x % DOFs, &
-          x % Perm(Indexes(1:n)), UElement=Element )
-       END IF
-
-       ! backflip, in case G is needed again
-       ! For change of sign backflip and flip are same operations.
-       IF( Solver % PeriodicFlipActive ) THEN
-         CALL FlipPeriodicLocalMatrix( Solver, n, Indexes, x % dofs, G )
-         CALL FlipPeriodicLocalForce( Solver, n, Indexes, x % dofs, f )
-       END IF
-       
+       MCAsm = .FALSE.
      END IF
+       
+     Indexes => GetIndexStore()
+     n = GetElementDOFs( Indexes, Element, Solver )
+       
+     PermIndexes => GetPermIndexStore()
+     ! Get permuted indices
+!DIR$ IVDEP
+     DO j=1,n
+       PermIndexes(j) = x % Perm(Indexes(j))
+     END DO
+
+     IF( Solver % LocalSystemMode > 0 ) THEN
+       CALL UseLocalMatrixStorage( Solver, n * x % dofs, G, F, ElemInd = Element % ElementIndex )
+     END IF
+     
+     ! If we have any antiperiodic entries we need to check them all!
+     IF( Solver % PeriodicFlipActive ) THEN
+       CALL FlipPeriodicLocalMatrix( Solver, n, Indexes, x % dofs, G )
+       CALL FlipPeriodicLocalForce( Solver, n, Indexes, x % dofs, f )
+     END IF
+
+     IF( VecAsm ) THEN
+       CALL UpdateGlobalEquationsVec( A, G, b, f, n, &
+           x % DOFs, PermIndexes, &
+           UElement=Element, MCAssembly=MCAsm )
+     ELSE       
+!      IF( A % FORMAT == MATRIX_CRS ) THEN
+!        ! For CRS format these are effectively the same
+!        CALL UpdateGlobalEquationsVec( A,G,b,f,n,x % DOFs, &
+!            PermIndexes, UElement=Element )
+!      ELSE
+         CALL UpdateGlobalEquations( A,G,b,f,n,x % DOFs, &
+             PermIndexes, UElement=Element )       
+!      END IF
+         
+       IF(Solver % DirectMethod == DIRECT_PERMON) THEN
+         CALL UpdatePermonMatrix( A, G, n, x % DOFs, PermIndexes )
+       END IF
+     END IF
+     
+     ! backflip, in case G is needed again
+     ! For change of sign backflip and flip are same operations.
+     IF( Solver % PeriodicFlipActive ) THEN
+       CALL FlipPeriodicLocalMatrix( Solver, n, Indexes, x % dofs, G )
+       CALL FlipPeriodicLocalForce( Solver, n, Indexes, x % dofs, f )
+     END IF
+     
 !------------------------------------------------------------------------------
   END SUBROUTINE DefaultUpdateEquationsR
 !------------------------------------------------------------------------------
@@ -4491,13 +4704,11 @@ CONTAINS
 
      IF ( PRESENT( USolver ) ) THEN
         Solver => USolver
-        A => Solver % Matrix
-        x => Solver % Variable
      ELSE
         Solver => CurrentModel % Solver
-        A => Solver % Matrix
-        x => Solver % Variable
      END IF
+     A => Solver % Matrix
+     x => Solver % Variable
 
      Element => GetCurrentElement( UElement ) 
 
@@ -4536,10 +4747,15 @@ CONTAINS
      IF( Solver % PeriodicFlipActive ) THEN
        CALL FlipPeriodicLocalMatrix( Solver, n, Indexes, x % dofs, M )
      END IF
-      
-     CALL UpdateMassMatrix( A, M, n, x % DOFs, x % Perm(Indexes(1:n)), & 
-         A % PrecValues )
 
+     SELECT CASE( A % Format )
+     CASE( MATRIX_CRS )
+       CALL CRS_GlueLocalMatrix( A, n, x % DOFs, x % Perm(Indexes(1:n)), &
+           M, A % PrecValues )
+     CASE DEFAULT
+       CALL FATAL( 'DefaultUpdatePrecR', 'Unexpected matrix format')
+     END SELECT
+ 
      IF( Solver % PeriodicFlipActive ) THEN
        CALL FlipPeriodicLocalMatrix( Solver, n, Indexes, x % dofs, M )
      END IF
@@ -4567,13 +4783,11 @@ CONTAINS
 
      IF ( PRESENT( USolver ) ) THEN
         Solver => USolver
-        A => Solver % Matrix
-        x => Solver % Variable
      ELSE
         Solver => CurrentModel % Solver
-        A => Solver % Matrix
-        x => Solver % Variable
      END IF
+     A => Solver % Matrix
+     x => Solver % Variable
 
      Element => GetCurrentElement( UElement ) 
 
@@ -4623,9 +4837,15 @@ CONTAINS
      IF( Solver % PeriodicFlipActive ) THEN
        CALL FlipPeriodicLocalMatrix( Solver, n, Indexes, x % dofs, M )
      END IF
-     
-     CALL UpdateMassMatrix( A, M, n, x % DOFs, x % Perm(Indexes(1:n)), &
-              A % PrecValues )
+
+     SELECT CASE( A % Format )
+     CASE( MATRIX_CRS )
+       CALL CRS_GlueLocalMatrix( A, n, x % DOFs, x % Perm(Indexes(1:n)), &
+           M, A % PrecValues )
+     CASE DEFAULT
+       CALL FATAL( 'DefaultUpdatePrecC', 'Unexpected matrix format')
+     END SELECT
+
      DEALLOCATE( M )
 !------------------------------------------------------------------------------
   END SUBROUTINE DefaultUpdatePrecC
@@ -5223,6 +5443,7 @@ CONTAINS
      LOGICAL :: PiolaTransform, QuadraticApproximation, SecondKindBasis
      LOGICAL, ALLOCATABLE :: ReleaseDir(:)
      LOGICAL :: ReleaseAny, NodalBCsWithBraces,AllConstrained
+     LOGICAL :: CheckRight, AugmentedEigenSystem
      
      CHARACTER(:), ALLOCATABLE :: Name
 
@@ -5276,8 +5497,20 @@ CONTAINS
      !---------------------------------------------------------------------
      IF( ListGetLogical( Params,'Apply Limiter',Found) ) THEN
        CALL DetermineSoftLimiter( Solver )	
+
+       ! It is difficult to determine whether loads should be computed before or after setting the limiter.
+       ! There are cases where both alternative are needed.
+       IF(ListGetLogical( Params,'Apply Limiter Loads After',Found) ) THEN         
+         DO DOF=1,x % DOFs
+           name = TRIM(x % name)
+           IF (x % DOFs>1) name=ComponentName(name,DOF)              
+           CALL SetNodalLoads( CurrentModel,A,A % rhs, &
+               Name,DOF,x % DOFs,x % Perm ) 
+         END DO
+       END IF
      END IF
-      
+         
+     
      Offset = 0
      IF(PRESENT(UOffset)) Offset=UOffset
 
@@ -5452,10 +5685,6 @@ CONTAINS
        DO DOF=1,x % DOFs
          name = TRIM(x % name)
          IF (x % DOFs>1) name=ComponentName(name,DOF)
-
-         ! This has been moved to "DefaultFinishBoundaryAssembly" to enable limiters/contacts.
-         !CALL SetNodalLoads( CurrentModel,A, b, &
-         !    Name,DOF,x % DOFs,x % Perm ) ! , Offset ) not yet ?
 
          CALL SetDirichletBoundaries( CurrentModel, A, b, &
              Name, DOF, x % DOFs, x % Perm, Offset, OffDiagonalMatrix )
@@ -5729,10 +5958,26 @@ CONTAINS
            ! Get parent element:
            ! -------------------
            Parent => Element % BoundaryInfo % Left
-           IF ( .NOT. ASSOCIATED( Parent ) ) THEN
-              Parent => Element % BoundaryInfo % Right
+           IF ( ASSOCIATED( Parent ) ) THEN
+             IF (Parent % BodyId < 1) THEN
+               CheckRight = .TRUE.
+             ELSE
+               CheckRight = .FALSE.
+             END IF
+           ELSE
+             CheckRight = .TRUE.
            END IF
-           IF ( .NOT. ASSOCIATED( Parent ) )   CYCLE
+             
+           IF (CheckRight) THEN
+             Parent => Element % BoundaryInfo % Right
+             IF ( ASSOCIATED( Parent ) ) THEN
+               IF (Parent % BodyId < 1) THEN
+                 Call Warn('SetDefaultDirichlet', 'Cannot set a BC owing to a missing parent body index')
+                 CYCLE
+               END IF
+             END IF
+           END IF
+           IF ( .NOT. ASSOCIATED( Parent ) ) CYCLE
            np = Parent % TYPE % NumberOfNodes
 
            IF ( ListCheckPrefix(BC, Name//' {e}') ) THEN
@@ -5752,6 +5997,11 @@ CONTAINS
                    EDOFs = Edge % BDOFs     ! The number of DOFs associated with edges
                    IF (EDOFs < 1) CYCLE
 
+                   AugmentedEigenSystem = ListGetLogical(Params, 'Eigen System Augmentation', Found) 
+                   IF (AugmentedEigenSystem) THEN
+                     EDOFs = EDOFs/2
+                   END IF
+
                    n = Edge % TYPE % NumberOfNodes
                    CALL VectorElementEdgeDOFs(BC,Edge,n,Parent,np,Name//' {e}',Work, &
                        EDOFs, SecondKindBasis)
@@ -5765,7 +6015,11 @@ CONTAINS
                    END IF
 
                    DO j=1,EDOFs
-                     k = n_start + j
+                     IF (AugmentedEigenSystem) THEN
+                       k = n_start + 2*j - 1
+                     ELSE
+                       k = n_start + j
+                     END IF
                      nb = x % Perm(gInd(k))
                      IF ( nb <= 0 ) CYCLE
                      nb = Offset + x % DOFs*(nb-1) + DOF
@@ -6049,7 +6303,6 @@ CONTAINS
      IF ( GetLogical(Params,'Constraint Modes Analysis',Found) ) THEN
        CALL SetConstraintModesBoundaries( CurrentModel, Solver, A, b, x % Name, x % DOFs, x % Perm )
      END IF
-      
      
 #ifdef HAVE_FETI4I
      IF(C_ASSOCIATED(A % PermonMatrix)) THEN
@@ -6700,7 +6953,9 @@ CONTAINS
       A => PSolver % Matrix
       IF(ASSOCIATED(A)) THEN
         CALL VectorValuesRange(A % Values,SIZE(A % Values),'A_bulk')       
-        CALL VectorValuesRange(A % rhs,SIZE(A % rhs),'b_bulk')
+        IF(ASSOCIATED(A % rhs)) THEN
+          CALL VectorValuesRange(A % rhs,SIZE(A % rhs),'b_bulk')
+        END IF
       END IF
     END IF
     
@@ -6717,7 +6972,7 @@ CONTAINS
     LOGICAL, OPTIONAL :: BulkUpdate
     TYPE(Solver_t), POINTER :: PSolver
     TYPE(ValueList_t), POINTER :: Params
-    LOGICAL :: Bupd, Found
+    LOGICAL :: Bupd, Found, DoIt
     INTEGER :: n
     TYPE(Matrix_t), POINTER :: A
     CHARACTER(:), ALLOCATABLE :: str, name
@@ -6735,14 +6990,20 @@ CONTAINS
     x => PSolver % Variable
    
     ! Set the nodal loads. This needs to be done before any contacts or limiters since otherwise
-    ! the given nodal loads will not be considered properly.     
-    DO DOF=1,x % DOFs
-      name = TRIM(x % name)
-      IF (x % DOFs>1) name=ComponentName(name,DOF)              
-      CALL SetNodalLoads( CurrentModel,A,A % rhs, &
-          Name,DOF,x % DOFs,x % Perm ) 
-    END DO    
-
+    ! the given nodal loads will not be considered properly.         
+    DoIt = .TRUE.
+    IF( ListGetLogical( Params,'Apply Limiter',Found ) ) THEN
+      IF(ListGetLogical( Params,'Apply Limiter Loads After',Found) ) DoIt = .FALSE.
+    END IF
+    IF( DoIt ) THEN
+      DO DOF=1,x % DOFs
+        name = TRIM(x % name)
+        IF (x % DOFs>1) name=ComponentName(name,DOF)              
+        CALL SetNodalLoads( CurrentModel,A,A % rhs, &
+            Name,DOF,x % DOFs,x % Perm ) 
+      END DO
+    END IF
+    
     IF( ListGetLogical( Params,'Boundary Assembly Timing',Found ) ) THEN 
       CALL CheckTimer('BoundaryAssembly'//GetVarName(x), Level=5, Delete=.TRUE. ) 
     END IF
@@ -6789,7 +7050,9 @@ CONTAINS
     IF( InfoActive( 30 ) ) THEN
       IF(ASSOCIATED(A)) THEN
         CALL VectorValuesRange(A % Values,SIZE(A % Values),'A0')       
-        CALL VectorValuesRange(A % rhs,SIZE(A % rhs),'b0')
+        IF( ASSOCIATED( A % rhs) ) THEN
+          CALL VectorValuesRange(A % rhs,SIZE(A % rhs),'b0')
+        END IF
       END IF
     END IF
 

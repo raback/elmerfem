@@ -2567,8 +2567,16 @@ CONTAINS
 
        BodyId = Element % BodyId
        IF (BodyId==0 .AND. ASSOCIATED(Element % BoundaryInfo)) THEN
-         Parent => Element % PDefs % LocalParent
+         Parent => Element % PDefs % LocalParent         
          IF(ASSOCIATED(Parent)) BodyId = Parent % BodyId
+         IF( BodyId == 0 ) THEN
+           Parent => Element % BoundaryInfo % Left
+           IF( ASSOCIATED(Parent)) BodyId = Parent % BodyId
+         END IF
+         IF(BodyId == 0) THEN
+           Parent => Element % BoundaryInfo % Right
+           IF( ASSOCIATED(Parent)) BodyId = Parent % BodyId
+         END IF
        END IF
        IF (BodyId==0) THEN
          CALL Warn('ElementBasisDegree', 'Element '//I2S(Element % ElementIndex)//' of type '//&
@@ -3252,11 +3260,20 @@ CONTAINS
 
       BodyId = Element % BodyId
       IF (BodyId==0 .AND. ASSOCIATED(Element % BoundaryInfo)) THEN
-        Parent => Element % PDefs % LocalParent
+        Parent => Element % PDefs % LocalParent         
         IF(ASSOCIATED(Parent)) BodyId = Parent % BodyId
+        IF( BodyId == 0 ) THEN
+          Parent => Element % BoundaryInfo % Left
+          IF( ASSOCIATED(Parent)) BodyId = Parent % BodyId
+        END IF
+        IF(BodyId == 0) THEN
+          Parent => Element % BoundaryInfo % Right
+          IF( ASSOCIATED(Parent)) BodyId = Parent % BodyId
+        END IF
       END IF
+
       IF (BodyId==0) THEN
-        CALL Warn('ElementBasisDegree', 'Element '//I2S(Element % ElementIndex)//' of type '//&
+        CALL Warn('ElementInfo', 'Element '//I2S(Element % ElementIndex)//' of type '//&
             I2S(Element % TYPE % ElementCode)//' has 0 BodyId, assuming index 1')
         BodyId = 1
       END IF
@@ -4521,7 +4538,7 @@ CONTAINS
      END IF
 
      IF (BodyId==0) THEN
-       CALL Warn('ElementBasisDegree', 'Element '//I2S(Element % ElementIndex)//' of type '//&
+       CALL Warn('ElementInfoVec', 'Element '//I2S(Element % ElementIndex)//' of type '//&
            I2S(Element % TYPE % ElementCode)//' has 0 BodyId, assuming index 1')
        BodyId = 1
      END IF
@@ -7360,9 +7377,9 @@ END SUBROUTINE PickActiveFace
 
                IF (RedefineFaceBasis) THEN
                  EdgeBasis(7,:) = 0.5d0 * D1 * WorkBasis(I1,:) + 0.5d0 * D2 * WorkBasis(I2,:)
-                 CurlBasis(7,:) = 0.5d0 * D1 * WorkCurlBasis(I1,:) + 0.5d0 * D2 * WorkCurlBasis(I2,:)
+                 CurlBasis(7,3) = 0.5d0 * D1 * WorkCurlBasis(I1,3) + 0.5d0 * D2 * WorkCurlBasis(I2,3)
                  EdgeBasis(8,:) = 0.5d0 * D2 * WorkBasis(I2,:) - 0.5d0 * D1 * WorkBasis(I1,:)
-                 CurlBasis(8,:) = 0.5d0 * D2 * WorkCurlBasis(I2,:) - 0.5d0 * D1 * WorkCurlBasis(I1,:)
+                 CurlBasis(8,3) = 0.5d0 * D2 * WorkCurlBasis(I2,3) - 0.5d0 * D1 * WorkCurlBasis(I1,3)
                ELSE
                  EdgeBasis(7,:) = D1 * WorkBasis(I1,:)
                  CurlBasis(7,3) = D1 * WorkCurlBasis(I1,3)
@@ -7374,8 +7391,8 @@ END SUBROUTINE PickActiveFace
                IF (ScaleFaceBasis) THEN
                  EdgeBasis(7,:) = sqrt(fs1) * EdgeBasis(7,:)
                  EdgeBasis(8,:) = sqrt(fs2) * EdgeBasis(8,:)
-                 CurlBasis(7,:) = sqrt(fs1) * CurlBasis(7,:)
-                 CurlBasis(8,:) = sqrt(fs2) * CurlBasis(8,:)
+                 CurlBasis(7,3) = sqrt(fs1) * CurlBasis(7,3)
+                 CurlBasis(8,3) = sqrt(fs2) * CurlBasis(8,3)
                END IF
              END IF
            END IF
