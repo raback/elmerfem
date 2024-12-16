@@ -703,7 +703,7 @@ CONTAINS
     !don't know at this point the required size of work_int, if there are lots
     !of bulk elements, probably NBulk is sufficient, but for only a few
     !disconnected elements, maybe not. So set min size = 1000
-    work_size = MAX(NBulk, 1000)
+    work_size = MAX(NBulk, 5000)
     ALLOCATE(SendFaces(ParEnv % PEs),RecvFaces(ParEnv % PEs),work_int(work_size))
 
     RecvFaces % Count = 0
