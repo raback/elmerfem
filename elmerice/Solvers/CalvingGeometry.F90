@@ -6235,7 +6235,8 @@ CONTAINS
     REAL(KIND=dp) :: RotationMatrix(3,3), UnRotationMatrix(3,3), FrontDist, MaxDist, &
          ShiftTo, Dir1(2), Dir2(2), CCW_value,a1(2),a2(2),b1(2),b2(2),intersect(2), &
          StartX, StartY, EndX, EndY, Orientation(3), temp, NodeHolder(3), err_buffer,&
-         yy, zz, gradient, c, intersect_z, SideCorner(3), MinDist, TempDist, IsBelowMean
+         yy, zz, gradient, c, intersect_z, SideCorner(3), MinDist, TempDist, IsBelowMean,&
+         PolyMin, PolyMax
     REAL(KIND=dp), ALLOCATABLE :: ConstrictDirection(:,:), REdge(:,:), Polygons(:,:)
     REAL(KIND=dp), POINTER :: WorkReal(:)
     TYPE(CrevassePath_t), POINTER :: CurrentPath, OtherPath, WorkPath, LeftPath, RightPath
@@ -6256,6 +6257,13 @@ CONTAINS
     rt0 = RealTime()
     Debug = .FALSE.
     Snakey = .TRUE.
+
+    IF(PRESENT(GridSize)) THEN
+      err_buffer = GridSize/1000.0
+    ELSE
+      err_buffer = AEPS
+    END IF
+    IF( err_buffer < AEPS) err_buffer = AEPS
 
     ! if on lateral margin need to make sure that glacier corner is within crev.
     ! if it lies outside the crev then the crev isn't really on front but on the lateral corner
@@ -6297,6 +6305,8 @@ CONTAINS
       CurrentPath => WorkPath
     END DO
 
+    DEALLOCATE(Polygons, PolyStart, PolyEnd)
+    CALL GetCalvingPolygons(Mesh, CrevassePaths, EdgeX, EdgeY, Polygons, PolyStart, PolyEnd, GridSize)
     ! invalid lateral crevs must first be removed before this subroutine
     CurrentPath => CrevassePaths
     path=0
@@ -6340,7 +6350,7 @@ CONTAINS
       IF(Onside /= 0 .AND. LatCalvMargins) AddLateralMargins = .TRUE.
 
       orientation(3) = 0.0_dp
-      IF( ABS(StartX-EndX) < AEPS) THEN
+      IF( ABS(StartX-EndX) < err_buffer) THEN
         ! front orientation is aligned with y-axis
         Orientation(2) =  0.0_dp
         IF(EndY > StartY) THEN
@@ -6348,7 +6358,7 @@ CONTAINS
         ELSE
           Orientation(1)=-1.0_dp
         END IF
-      ELSE IF (ABS(StartY-EndY)<AEPS) THEN
+      ELSE IF (ABS(StartY-EndY)< err_buffer) THEN
         ! front orientation is aligned with x-axis
         Orientation(1) = 0.0_dp
         IF(EndX > StartX) THEN
@@ -6360,11 +6370,15 @@ CONTAINS
         CALL ComputePathExtent(CrevassePaths, Mesh % Nodes, .TRUE.)
         ! endx always greater than startx
         ! check if yextent min smaller than starty
-        IF(CurrentPath % Right ==  StartY .OR. &
-          CurrentPath % Right == EndY) THEN
-          Orientation(2)=1.0_dp
-        ELSE
+
+        PolyMin = MINVAL(Polygons(2,PolyStart(path):PolyEnd(path)))
+        PolyMax = MAXVAL(Polygons(2,PolyStart(path):PolyEnd(path)))
+
+        IF(ABS(CurrentPath % Right - PolyMax) > &
+          CurrentPath % Left - PolyMin) THEN
           Orientation(2)=-1.0_dp
+        ELSE
+          Orientation(2)=1.0_dp
         END IF
         Orientation(1)=Orientation(2)*(EndY-StartY)/(StartX-EndX)
       END IF
@@ -6397,12 +6411,6 @@ CONTAINS
         REdge(2,i) = NodeHolder(2)
         REdge(3,i) = NodeHolder(3)
       END DO
-
-      IF(PRESENT(GridSize)) THEN
-        err_buffer = GridSize/10
-      ELSE
-        err_buffer = 0.0_dp
-      END IF
 
       ! crop edge around crev ends
       crop=0
@@ -7617,9 +7625,6 @@ CONTAINS
       xx = Mesh % Nodes % x(i)
       yy = Mesh % Nodes % y(i)
 
-      inside = PointInPolygon2D(RailPoly, (/xx,yy/))
-      IF(inside) CYCLE
-
       IF(LeftPerm(i) > 0) THEN ! check if on left side
         mindist = HUGE(1.0_dp)
         DO j=1, Nl-1
@@ -7655,6 +7660,9 @@ CONTAINS
       END IF
 
       IF(FrontPerm(i) > 0) THEN ! check if front is on rail eg advance on narrowing rails
+        inside = PointInPolygon2D(RailPoly, (/xx,yy/))
+        IF(inside) CYCLE
+
         mindist = HUGE(1.0_dp)
         DO j=1, Nr-1
           tempdist = PointLineSegmDist2D((/xR(j), yR(j)/),(/xR(j+1), yR(j+1)/), (/xx, yy/))
@@ -8092,6 +8100,8 @@ CONTAINS
         DO j=1, SIZE(ElNodes)
           IF(TopPerm(ElNodes(j)) /= 0) CYCLE
           IF(BottomPerm(ElNodes(j)) /= 0) CYCLE
+          IF(LeftPerm(ElNodes(j)) /= 0) CYCLE
+          IF(RightPerm(ElNodes(j)) /= 0) CYCLE
           Neighbours => Mesh % ParallelInfo % NeighbourList(ElNodes(j)) % Neighbours
           DO k=1, SIZE(Neighbours)
             IF(Neighbours(k) == ParEnv % MyPE) CYCLE
