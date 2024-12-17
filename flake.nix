@@ -2,23 +2,13 @@
   description = "Elmer FEM";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
 
     flake-utils.url = "github:numtide/flake-utils";
 
     flake-compat.url = "https://flakehub.com/f/edolstra/flake-compat/1.tar.gz";
 
     nix-filter.url = "github:numtide/nix-filter";
-
-    mumps = {
-      url = "github:mk3z/mumps";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
-    csa = {
-      url = "github:mk3z/csa-c";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
 
     mmg = {
       url = "github:mk3z/mmg/develop";
@@ -53,8 +43,6 @@
     (flake-utils.lib.eachDefaultSystem (
       system: let
         pkgs = nixpkgs.legacyPackages.${system};
-        mumps = inputs.mumps.packages.${system}.default;
-        csa = inputs.csa.packages.${system}.default;
         mmg = inputs.mmg.packages.${system}.default;
         parmmg = inputs.parmmg.packages.${system}.default;
 
@@ -195,17 +183,15 @@
             inherit doCheck;
             name = "elmer-full";
 
-            buildInputs = with pkgs;
-              [
-                hdf5-mpi
-                hypre
-                nn
-                scalapack
-              ]
-              ++ [
-                csa
-                mumps
-              ];
+            buildInputs = with pkgs; [
+              libcsa
+              hdf5-mpi
+              hypre
+              metis
+              mumps
+              nn
+              scalapack
+            ];
 
             cmakeFlags = [
               "-DWITH_NETCDF:BOOL=TRUE"
@@ -220,8 +206,8 @@
 
               "-DWITH_ScatteredDataInterpolator:BOOL=TRUE"
 
-              "-DCSA_LIBRARY=${csa}/lib/libcsa.a"
-              "-DCSA_INCLUDE_DIR=${csa}/include"
+              "-DCSA_LIBRARY=${pkgs.libcsa}/lib/libcsa.a"
+              "-DCSA_INCLUDE_DIR=${pkgs.libcsa}/include"
 
               "-DNN_INCLUDE_DIR=${pkgs.nn}/include"
               "-DNN_LIBRARY=${pkgs.nn}/lib/libnn.a"
