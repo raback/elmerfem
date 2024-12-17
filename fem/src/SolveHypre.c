@@ -322,9 +322,8 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
       and later changes the pointer to solvers. */
 
    if ( hypre_pre == 1 || hypre_sol == 1 )  {
-     if( myverb > 8 ) {
-       fprintf( stdout,"SolveHypre: using BoomerAMG\n");
-     }
+     if( myverb > 8 ) 
+       fprintf( stdout,"SolveHypre: Creating Hypre BoomerAMG\n");
      if( myverb > 10 ) {
        fprintf( stdout,"RelaxType = %d\n",hypre_intpara[0]); 
        fprintf( stdout,"CoarsenType = %d\n",hypre_intpara[1]); 
@@ -358,12 +357,12 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
 	for 3D Laplace, 0.9 for elasticity) */
      HYPRE_BoomerAMGSetStrongThreshold(precond, hypre_dppara[0]);  	 
      
-     fprintf(stdout,"SolveHypre: Created BoomerAMG preconditioner!\n");
+     if( myverb > 10) fprintf(stdout,"SolveHypre: Created BoomerAMG preconditioner!\n");
 
    } else if ( hypre_pre == 2 || hypre_sol == 2 ) {
      precond = Container->precond;
      if(precond) {
-       if(myverb > 8) fprintf( stdout,"SolveHypre: Using previously defined AMS preconditioner!\n");
+       if(myverb > 10) fprintf( stdout,"SolveHypre: Using previously defined AMS!\n");
      } else {
        fprintf( stdout,"SolveHypre: Pointer to AMS preconditioner is NULL!\n");       
        exit(EXIT_FAILURE);
@@ -374,7 +373,7 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
      int max_nnz_row, schur_max_iter,tri_solve, ljac_iters,ujac_iters; 
      double tol, threshold;
        
-     if (myverb > 6) fprintf( stdout,"SolveHypre: using ILU%d as preconditioner\n",*ILUn); 
+     if (myverb > 8) fprintf( stdout,"SolveHypre: using ILU%d as preconditioner\n",*ILUn); 
           
      /* (Required) Create ILU solver */
      HYPRE_ILUCreate(&precond);
@@ -413,7 +412,7 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
    }
 
    else if ( hypre_pre == 4 ) {
-     if (myverb > 6) fprintf( stdout,"SolveHypre: using ParaSails as preconditioner\n"); 
+     if (myverb > 8) fprintf( stdout,"SolveHypre: using ParaSails as preconditioner\n"); 
 
      /* Now set up the ParaSails preconditioner and specify any parameters */
      HYPRE_ParaSailsCreate(comm, &precond);
@@ -433,7 +432,7 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
      int max_steps=5,max_step_size=3;
      double kap_tolerance=1.0e-3;
 #if 0
-     if (myverb > 6) fprintf( stdout,"SolveHypre: using SPAI as preconditioner\n"); 
+     if (myverb > 8) fprintf( stdout,"SolveHypre: using SPAI as preconditioner\n"); 
      HYPRE_FSAICreate(&precond);
      HYPRE_FSAISetMaxSteps(precond, max_steps);
      HYPRE_FSAISetMaxStepSize(precond, max_step_size);
@@ -514,8 +513,7 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
 			   (HYPRE_PtrToSolverFcn) HYPRE_ParaSailsSetup, precond);
      }
        
-     /* compute the preconditioner */
-     if (myverb > 10 ) fprintf(stdout,"SolveHypre: create preconditioner...");
+     if (myverb > 12 ) fprintf(stdout,"SolveHypre: Setting up PCG linear system");
      HYPRE_ParCSRPCGSetup(solver, parcsr_A, par_b, par_x);
 
 
@@ -549,8 +547,7 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
        HYPRE_BiCGSTABSetPrecond(solver, (HYPRE_PtrToSolverFcn) HYPRE_ParaSailsSolve,
 				(HYPRE_PtrToSolverFcn) HYPRE_ParaSailsSetup, precond);
      }
-     /* compute the preconditioner */
-     if (myverb > 10 ) fprintf(stdout,"SolveHypre: create preconditioner...");
+     if (myverb > 12 ) fprintf(stdout,"SolveHypre: Setting up BiCGStab linear system");
      HYPRE_ParCSRBiCGSTABSetup(solver, parcsr_A, par_b, par_x);     
 
      
@@ -586,8 +583,7 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
 			     (HYPRE_PtrToSolverFcn) HYPRE_ParaSailsSetup, precond);
      }
        
-     /* Pass the matrix and rhs into the solver */
-     if (myverb > 10 ) fprintf(stdout,"SolveHypre: Passing matrix and rhs into GMRES solver...");
+     if (myverb > 12 ) fprintf(stdout,"SolveHypre: Setting up GMRes linear system");
      HYPRE_ParCSRGMRESSetup(solver, parcsr_A, par_b, par_x);   
 
      
@@ -622,8 +618,7 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
        HYPRE_FlexGMRESSetPrecond(solver, (HYPRE_PtrToSolverFcn) HYPRE_ParaSailsSolve,
 			   (HYPRE_PtrToSolverFcn) HYPRE_ParaSailsSetup, precond);
      }
-     /* Pass the matrix and rhs into the solver */
-     if (myverb > 10 ) fprintf(stdout,"SolveHypre: Passing matrix and rhs into FlexGMRES solver...");
+     if (myverb > 12 ) fprintf(stdout,"SolveHypre: Setting up FlexGMRes linear system");
      HYPRE_ParCSRFlexGMRESSetup(solver, parcsr_A, par_b, par_x);
 
      
@@ -662,8 +657,7 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
 			   (HYPRE_PtrToSolverFcn) HYPRE_ParaSailsSetup, precond);
      }
        
-     /* compute the preconditioner */
-     if (myverb > 10 ) fprintf(stdout,"SolveHypre: Passing matrix and rhs into LGMRES solver...");
+     if (myverb > 12 ) fprintf(stdout,"SolveHypre: Setting up LGMRes linear system");
      HYPRE_ParCSRLGMRESSetup(solver, parcsr_A, par_b, par_x);
 
      
@@ -704,8 +698,7 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
 				(HYPRE_PtrToSolverFcn) HYPRE_ParaSailsSetup, precond);
      }
        
-     /* compute the preconditioner */
-     if (myverb > 10 ) fprintf(stdout,"SolveHypre: create preconditioner...");
+     if (myverb > 12 ) fprintf(stdout,"SolveHypre: Setting up COGMRes linear system");
      HYPRE_ParCSRCOGMRESSetup(solver, parcsr_A, par_b, par_x);
 
      

@@ -320,6 +320,7 @@ CONTAINS
 #ifdef HAVE_HYPRE
      IF (Matrix % Hypre /= 0) THEN
        i = ListGetInteger( CurrentModel % Simulation,'Max Output Level',Found ) 
+       IF(ParEnv % MyPe /= 0) i = 0 
        CALL SolveHypre4(Matrix % Hypre, i )
        Matrix % Hypre = 0
      END IF

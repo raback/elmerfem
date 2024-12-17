@@ -23934,7 +23934,7 @@ CONTAINS
 
          IF(IsBodyForce ) THEN
            BC => Model % BodyForces(bc_ind - Model % NumberOfBCs) % Values
-           Priority = .FALSE.           
+           Priority = 0
          ELSE
            BC => Model % BCs(bc_ind) % Values         
            IF( AnyPriority ) THEN
