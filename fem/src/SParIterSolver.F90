@@ -2318,9 +2318,7 @@ SUBROUTINE SolveHypre(Matrix, XVec, RHSVec, Solver, ParallelInfo, SplittedMatrix
   CALL SolveHYPRE2( Matrix % NumberOfRows, Aperm, Owner, Xvec, RHSvec, &
       Rounds, TOL, verbosity, Matrix % Hypre, Matrix % Comm )
 
-  IF(DoAMS) THEN
-    IF(Parallel) CALL FinalizeHypreAMS()    
-  END IF
+  IF(Parallel) CALL ExchangeHypreResults()    
   
   CALL SParIterActiveBarrier()
   DEALLOCATE( Owner, Aperm )
@@ -2400,7 +2398,7 @@ CONTAINS
   END SUBROUTINE CleanHypreAMS
 
 
-  SUBROUTINE FinalizeHypreAMS()
+  SUBROUTINE ExchangeHypreResults()
     INTEGER :: nbind
     
     ALLOCATE( VecEPerNB( ParEnv % PEs ) )
@@ -2425,7 +2423,7 @@ CONTAINS
     CALL ExchangeResult( Matrix, SplittedMatrix, ParallelInfo, XVec )
     DEALLOCATE( VecEPerNB )
 
-  END SUBROUTINE FinalizeHypreAMS
+  END SUBROUTINE ExchangeHypreResults
 
 
 #endif
