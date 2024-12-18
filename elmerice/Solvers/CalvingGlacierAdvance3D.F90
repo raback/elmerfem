@@ -208,7 +208,8 @@
    IF(.NOT. Found) CALL Info(SolverName, "Not moving bulk as default")
 
    MoveBase = ListGetLogical(Params,"Account for bedrock", Found, DefValue=.FALSE.)
-   IF(.NOT. Found) CALL Fatal(SolverName, "'Account for bedrock' not found")
+   ! still in testing
+   !IF(.NOT. Found) CALL Fatal(SolverName, "'Account for bedrock' not found")
 
    !Get the front line
    FrontMaskName = "Calving Front Mask"
