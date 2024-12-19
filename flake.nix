@@ -10,6 +10,11 @@
 
     nix-filter.url = "github:numtide/nix-filter";
 
+    mumps = {
+      url = "github:mk3z/mumps";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     mmg = {
       url = "github:mk3z/mmg/develop";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -43,6 +48,8 @@
     (flake-utils.lib.eachDefaultSystem (
       system: let
         pkgs = nixpkgs.legacyPackages.${system};
+
+        mumps = inputs.mumps.packages.${system}.default;
         mmg = inputs.mmg.packages.${system}.default;
         parmmg = inputs.parmmg.packages.${system}.default;
 
@@ -183,15 +190,15 @@
             inherit doCheck;
             name = "elmer-full";
 
-            buildInputs = with pkgs; [
-              libcsa
-              hdf5-mpi
-              hypre
-              metis
-              mumps
-              nn
-              scalapack
-            ];
+            buildInputs = with pkgs;
+              [
+                libcsa
+                hdf5-mpi
+                hypre
+                nn
+                scalapack
+              ]
+              ++ [mumps];
 
             cmakeFlags = [
               "-DWITH_NETCDF:BOOL=TRUE"
