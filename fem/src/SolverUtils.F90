@@ -16662,12 +16662,12 @@ SUBROUTINE ConstraintModesDriver( A, x, b, Solver, PreSolve, ThisMode, LinSysMod
     REAL(KIND=dp) :: FluxesRhs, FluxesRhsIm, ImpRe, ImpIm
     LOGICAL, ALLOCATABLE :: ConstrainedDOF0(:)
     REAL(KIND=dp) :: flux
-    CHARACTER(:), ALLOCATABLE :: MatrixFile
-    CHARACTER(*), PARAMETER :: Caller = 'ConstraintModesDriver'
-    INTEGER :: NMode = 0
+    CHARACTER(:), ALLOCATABLE :: MatrixFile, BCName
+    INTEGER :: NMode = 0, dof
     TYPE(Variable_t), POINTER :: pVar
     TYPE(ValueList_t), POINTER :: Params
-    LOGICAL :: LinsysMode, EigenMode 
+    LOGICAL :: LinsysMode, EigenMode, GotBC, LumpedMode 
+    CHARACTER(*), PARAMETER :: Caller = 'ConstraintModesDriver'
 
     SAVE FluxesRow, FluxesRowIm, Fluxes, TempRhs, A0, b0, ConstrainedDOF0, LinsysMode, NMode
 
@@ -16695,6 +16695,11 @@ SUBROUTINE ConstraintModesDriver( A, x, b, Solver, PreSolve, ThisMode, LinSysMod
     
     IsComplex = ListGetLogical( Params,'Linear System Complex',Found)
 
+
+    ! If the mode is nodal it is not lumped
+    ! If it relates to whole boundary it is. 
+    LumpedMode = ListGetLogical( Params,'Constraint Modes Lumped',Found )
+    
     ! This is to my understanding not needed. To estimate the fluxes we
     ! basically integrate over basis functions that estimate unity.
     ! For p-elements this means using the linear nodal basis only, not any
@@ -16831,16 +16836,51 @@ SUBROUTINE ConstraintModesDriver( A, x, b, Solver, PreSolve, ThisMode, LinSysMod
             END WHERE
           END IF
           CALL EnforceDirichletConditions( Solver, A, b )
-        ELSE       
+
+        ELSE IF( LumpedMode ) THEN
+          
+          IF( Nmode > 1 .AND. LinSysMode ) THEN
+            DO dof=1,Var % dofs
+              WHERE( Var % ConstraintModesIndeces == Var % Dofs*(Nmode-2)+dof ) 
+                A % DValues = 0.0_dp
+              END WHERE
+            END DO
+          END IF
+          
+          ! By default constraint modes are set to 0/1.
+          ! However, we can also set the BC's in some other way using prefix "mode 1:" etc.  
+          GotBC = .FALSE.
+          DO dof=1,Var % dofs
+            BcName = 'mode '//I2S(Nmode)//': '//ComponentName(Var % name,dof)
+            IF(ListCheckPresentAnyBC(CurrentModel, BcName ) ) THEN            
+              CALL Info(Caller,"Setting constraint for: "//TRIM(BCName),Level=7)
+              CALL SetDirichletBoundaries( CurrentModel, A, b, &
+                  BcName, dof, Var % DOFs, Var % Perm )
+              GotBC = .TRUE.
+            END IF
+          END DO
+          IF(.NOT. GotBC) THEN
+            DO dof=1,Var % dofs
+              WHERE( Var % ConstraintModesIndeces == Var % Dofs*(Nmode-1)+dof ) 
+                A % DValues = 1.0_dp
+              END WHERE
+            END DO
+          END IF
+          CALL EnforceDirichletConditions( Solver, A, b )
+          
+        ELSE
+          
           IF( Nmode > 1 .AND. LinSysMode ) THEN
             WHERE( Var % ConstraintModesIndeces == Nmode-1 ) 
               A % DValues = 0.0_dp
             END WHERE
           END IF
+
           WHERE( Var % ConstraintModesIndeces == Nmode ) 
             A % DValues = 1.0_dp
           END WHERE
-          CALL EnforceDirichletConditions( Solver, A, b )
+
+          CALL EnforceDirichletConditions( Solver, A, b )                    
         END IF
       END IF
       CALL ListAddLogical( Params,'Skip Zero Rhs Test',.TRUE. )
