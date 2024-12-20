@@ -3869,6 +3869,11 @@ CONTAINS
 
     ! This could be somewhere else too. Now it is here for debugging.
     CALL SaveParallelInfo( Solver )
+
+    IF( ListGetLogical( Params,'Linear System Solve and Stop',Found ) ) THEN
+      CALL Info('DefaultSolve','Just solved matrix and stopped!',Level=4)
+      STOP EXIT_OK
+    END IF
     
 !------------------------------------------------------------------------------
   END FUNCTION DefaultSolve
