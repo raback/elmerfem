@@ -16781,7 +16781,18 @@ SUBROUTINE ConstraintModesDriver( A, x, b, Solver, PreSolve, ThisMode, LinSysMod
 
       CALL Info(Caller,'Setting up constrained mode: '//I2S(NMode),Level=6)
       i = Nmode
-      
+
+
+      ! By default constraint modes are set to 0/1.
+      ! However, we can also set the BC's in some other way using prefix "mode 1:" etc.  
+      GotBC = .FALSE.
+      IF( LumpedMode ) THEN
+        DO dof=1,Var % dofs
+          BcName = 'mode '//I2S(Nmode)//': '//ComponentName(Var % name,dof)
+          IF(ListCheckPresentAnyBC(CurrentModel, BcName ) ) GotBC = .TRUE.
+        END DO
+      END IF
+        
       ! The matrix has been manipulated already before. This ensures
       ! that the system has values 1 at the constraint mode i.
       IF( CoilMode ) THEN                
@@ -16837,7 +16848,7 @@ SUBROUTINE ConstraintModesDriver( A, x, b, Solver, PreSolve, ThisMode, LinSysMod
           END IF
           CALL EnforceDirichletConditions( Solver, A, b )
 
-        ELSE IF( LumpedMode ) THEN
+        ELSE IF( GotBC ) THEN
           
           IF( Nmode > 1 .AND. LinSysMode ) THEN
             DO dof=1,Var % dofs
@@ -16847,25 +16858,15 @@ SUBROUTINE ConstraintModesDriver( A, x, b, Solver, PreSolve, ThisMode, LinSysMod
             END DO
           END IF
           
-          ! By default constraint modes are set to 0/1.
-          ! However, we can also set the BC's in some other way using prefix "mode 1:" etc.  
-          GotBC = .FALSE.
           DO dof=1,Var % dofs
             BcName = 'mode '//I2S(Nmode)//': '//ComponentName(Var % name,dof)
             IF(ListCheckPresentAnyBC(CurrentModel, BcName ) ) THEN            
               CALL Info(Caller,"Setting constraint for: "//TRIM(BCName),Level=7)
               CALL SetDirichletBoundaries( CurrentModel, A, b, &
                   BcName, dof, Var % DOFs, Var % Perm )
-              GotBC = .TRUE.
             END IF
           END DO
-          IF(.NOT. GotBC) THEN
-            DO dof=1,Var % dofs
-              WHERE( Var % ConstraintModesIndeces == Var % Dofs*(Nmode-1)+dof ) 
-                A % DValues = 1.0_dp
-              END WHERE
-            END DO
-          END IF
+
           CALL EnforceDirichletConditions( Solver, A, b )
           
         ELSE
