@@ -5279,8 +5279,8 @@ int checkStlForAscii(const char * filename)
 //-----------------------------------------------------------------------------
 void MainWindow::remeshSlot() {
   if (activeGenerator == GEN_UNKNOWN) {
-    logMessage("Unable to (re)mesh: no input data or mesh generator (please "
-               "make sure that your input file suffix is in lower case)");
+    logMessage("Unable to (re)mesh: no input data or mesh generator. Allowed: "
+               "smesh, poly, off, ply, mesh, stl, grd, FDNEUT, msh, mphtxt, inp, unv, plt, in2d");
     return;
   }
 
