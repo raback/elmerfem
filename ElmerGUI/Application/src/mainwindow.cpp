@@ -1651,7 +1651,7 @@ void MainWindow::readInputFile(QString fileName) {
       tetlibInputOk = true;
     }
 
-  } else if ((fileSuffix == "grd") || (fileSuffix == "FDNEUT") ||
+  } else if ((fileSuffix == "grd") || (fileSuffix == "fdneut") ||
              (fileSuffix == "msh") || (fileSuffix == "mphtxt") ||
              (fileSuffix == "inp") || (fileSuffix == "unv") ||
              (fileSuffix == "plt")) {
