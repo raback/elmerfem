@@ -12242,14 +12242,14 @@ CONTAINS
         i = BMesh1 % InvPerm(k+ind) - j
         Eperm1(i) = ind
       END DO
-      PRINT *,'count eperm1:',COUNT(Eperm1>0), BMesh1 % NumberOfEdges
+      !PRINT *,'count eperm1:',COUNT(Eperm1>0), BMesh1 % NumberOfEdges
 
       k = BMesh2 % NumberOfNodes
       DO ind=1,BMesh2 % NumberOfEdges
         i = BMesh2 % InvPerm(k+ind) - j
         Eperm2(i) = ind
       END DO
-      PRINT *,'count eperm2:',COUNT(Eperm2>0),Bmesh2 % NumberOfEdges      
+      !PRINT *,'count eperm2:',COUNT(Eperm2>0),Bmesh2 % NumberOfEdges      
       
       ! By construction for all edges two nodes define the geometry
       n = 2
@@ -12448,7 +12448,7 @@ CONTAINS
       ! End of 1).
 
       
-      IF(InfoActive(7)) THEN
+      IF(InfoActive(20)) THEN
         PRINT *,'Found intersections:',EdgeHits
         PRINT *,'Zero cut edges:',ZeroCuts
         PRINT *,'Intersection per edge:',1.0_dp * EdgeHits / TotalEdges 
@@ -17730,7 +17730,7 @@ CONTAINS
     TYPE(ValueList_t), POINTER :: Vlist
     TYPE(Mesh_t), POINTER :: Mesh
     REAL(KIND=dp) :: RotorRad, AngleCoeff, RotorSkew, StatorSkew
-    REAL(KIND=dp) :: zmin, zmax, Coord(3), zloc, alpha
+    REAL(KIND=dp) :: zmin, zmax, Coord(3), zloc, alpha, minskew, maxskew
     LOGICAL :: Found, GotSkewFun, GotSkew, IsRotor
     LOGICAL, ALLOCATABLE :: NodeDone(:)
     INTEGER :: NoNodes, elem, n, i, j, NodeIndex(1)
@@ -17798,6 +17798,9 @@ CONTAINS
     ALLOCATE(NodeDone(NoNodes))
     NodeDone = .FALSE.
 
+    maxskew = -HUGE(maxskew)
+    minskew = HUGE(minskew)
+    
     DO elem = 1,Mesh % NumberOfBulkElements      
       Element => Mesh % Elements(elem)
       n = Element % TYPE % NumberOfNodes
@@ -17836,6 +17839,9 @@ CONTAINS
             alpha = (zloc-0.5_dp) * StatorSkew 
           END IF
 
+          maxskew = MAX(alpha, maxskew)
+          minskew = MIN(alpha, minskew)
+          
           Mesh % Nodes % x(j) = Coord(1)*COS(alpha) - Coord(2)*SIN(alpha)
           Mesh % Nodes % y(j) = Coord(1)*SIN(alpha) + Coord(2)*COS(alpha)        
           NodeDone(j) = .TRUE.
@@ -17844,9 +17850,18 @@ CONTAINS
     END DO
 
     SkewDone = .TRUE.
-    
-    CALL Info(Caller,'Mesh skew done',Level=10)
-    
+
+    IF(InfoActive(10)) THEN
+      IF(GotSkewFun) THEN
+        minskew = (180.0/PI) * ParallelReduction(minskew,1)
+        maxskew = (180.0/PI) * ParallelReduction(maxskew,2)
+        WRITE(Message,'(A,2ES12.3)') 'Rotor skew done with range (degrees): ',minskew,maxskew
+      ELSE
+        WRITE(Message,'(A,2ES12.3)') 'Rotor skew done with total angle: ',(180.0/PI)*RotorSkew
+      END IF
+      CALL Info(Caller,Message)
+    END IF
+
   END SUBROUTINE SetMeshSkew
     
   
