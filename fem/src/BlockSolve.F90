@@ -654,9 +654,9 @@ CONTAINS
           Solver % Variable % Values(Solver % Matrix % Perm(j)) = Var % Values(k)
         END DO
       ELSE
-        IF(MINVAL(Amat % InvPerm) < 1) CALL Fatal('BlockCopyVar','Too small InvPerm')
-        IF(MINVAL(Amat % InvPerm) > n) CALL Fatal('BlockCopyVar','Too large InvPerm')
-        Solver % Variable % Values(Amat % InvPerm) = Var % Values
+        WHERE(Amat % InvPerm > 0) 
+          Solver % Variable % Values(Amat % InvPerm) = Var % Values
+        END WHERE
       END IF
       
     END DO
