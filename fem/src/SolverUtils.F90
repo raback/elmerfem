@@ -15929,6 +15929,7 @@ END FUNCTION SearchNodeL
           CALL EliminateLinearRestriction( A, bb, A % ConstraintMatrix, Acoll, Solver, .TRUE. )
           CALL List_ToCRSMatrix(Acoll)
 
+          Acoll % Comm = A % Comm 
           Acoll % AddMatrix => A % AddMatrix
           CALL ParallelInitMatrix(Solver, Acoll)
           
@@ -15936,7 +15937,10 @@ END FUNCTION SearchNodeL
 
           CALL Info(Caller,'Freeing collection matrix after solution',Level=10)
           NULLIFY( Acoll % AddMatrix )         
+
           CALL FreeMatrix(Acoll)
+          ParEnv => A % ParMatrix % ParEnv
+
           Acoll => NULL()
         END BLOCK
       ELSE
