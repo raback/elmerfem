@@ -15928,8 +15928,12 @@ END FUNCTION SearchNodeL
           CALL Info(Caller,'Eliminating constraints before going into block matrix!')
           CALL EliminateLinearRestriction( A, bb, A % ConstraintMatrix, Acoll, Solver, .TRUE. )
           CALL List_ToCRSMatrix(Acoll)
+
           Acoll % AddMatrix => A % AddMatrix
+          CALL ParallelInitMatrix(Solver, Acoll)
+          
           CALL BlockSolveExt( Acoll, x, Acoll % rhs, Solver )
+
           CALL Info(Caller,'Freeing collection matrix after solution',Level=10)
           NULLIFY( Acoll % AddMatrix )         
           CALL FreeMatrix(Acoll)
