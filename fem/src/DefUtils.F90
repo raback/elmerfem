@@ -3557,7 +3557,11 @@ CONTAINS
      IF( Solver % NewtonActive ) THEN
        IF( ListGetLogical( Params,'Nonlinear System Reset Newton', Found) ) Solver % NewtonActive = .FALSE.
      END IF
-          
+
+     IF( ListGetLogical( Params,'Nonlinear System Nullify Guess', Found ) ) THEN
+       Solver % Variable % Values = 0.0_dp
+     END IF
+     
      ! If we changed the system last time to harmonic one then revert back the real system
      IF( ListGetLogical( Params,'Harmonic Mode',Found ) ) THEN
        CALL ChangeToHarmonicSystem( Solver, .TRUE. )
