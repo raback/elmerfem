@@ -6294,13 +6294,16 @@ CONTAINS
      END DO
 
      IF( ReleaseAny) THEN
-       IF( InfoActive(10) ) THEN
+       IF( InfoActive(20) ) THEN
          k = COUNT( A % ConstrainedDOF ) 
-         PRINT *,'Original number of of Dirichlet BCs:',k       
+         CALL Info('DefaultDirichletBCs', &
+             'Original number of of Dirichlet BCs: '//I2S(k))       
          k = COUNT( ReleaseDir )
-         PRINT *,'Marked number of Dirichlet BCs not to set:',k       
+         CALL Info('DefaultDirichletBCs',&
+             'Marked number of Dirichlet BCs not to set: '//I2S(k))       
          k = COUNT( ReleaseDir .AND. A % ConstrainedDOF )
-         PRINT *,'Ignoring number of Dirichlet BCs:',k
+         CALL Info('DefaultDirichletBCs',&
+             'Ignoring number of Dirichlet BCs: '//I2S(k))
        END IF         
        WHERE( ReleaseDir )
          A % ConstrainedDOF = .FALSE.

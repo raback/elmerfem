@@ -8886,7 +8886,7 @@ CONTAINS
     IF(.NOT. Found ) THEN
       BiOrthogonalBasis = ListGetLogical( CurrentModel % Solver % Values, &
           'Eliminate Linear Constraints',Found )
-      IF( BiOrthogonalBasis ) THEN
+      IF( BiOrthogonalBasis .AND. .NOT. DoEdges ) THEN
         CALL Info(Caller,&
             'Enforcing > Use Biorthogonal Basis < to True to enable elimination',Level=8)
         CALL ListAddLogical( BC, 'Use Biorthogonal Basis',.TRUE. )
@@ -8894,10 +8894,6 @@ CONTAINS
     END IF
       
     IF (BiOrthogonalBasis) THEN
-      IF( DoEdges ) THEN
-        CALL Warn(Caller,'Biorthogonal basis cannot be combined with edge elements!')
-      END IF
-
       DualSlave  = ListGetLogical(BC, 'Biorthogonal Dual Slave', Found)
       IF(.NOT.Found) DualSlave  = .TRUE.
 
