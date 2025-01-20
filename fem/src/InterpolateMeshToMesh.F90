@@ -646,7 +646,7 @@ END SUBROUTINE InterpolateMeshToMesh
        REAL(KIND=dp) :: BoundingBox(6), detJ, u,v,w,s,val,rowsum, F(3,3), G(3,3)
        
        LOGICAL :: UseQTree, TryQTree, Stat, UseProjector, EdgeBasis, PiolaT, Parallel, &
-           TryLinear, KeepUnfoundNodesL
+           TryLinear, KeepUnfoundNodesL, InterpolatePartial
        TYPE(Quadrant_t), POINTER :: RootQuadrant
        
        INTEGER, POINTER   CONTIG :: Rows(:), Cols(:)
@@ -772,6 +772,10 @@ END SUBROUTINE InterpolateMeshToMesh
          CylProject = ListGetLogical( CurrentModel % Solver % Values, &
                'Interpolation Cylindric', Stat ) 
        END IF
+
+       InterpolatePartial = ListGetLogical( CurrentModel % Simulation, &
+            'Interpolation Partial Hit', Stat )                     
+
        
        QTreeFails = 0
        TotFails = 0
@@ -1004,8 +1008,10 @@ END SUBROUTINE InterpolateMeshToMesh
 
                    NewPerm => NewSol % Perm
                    IF (.NOT.ASSOCIATED(NewPerm)) NewPerm => Unitperm
-                                                                       
-                  IF ( ALL(OldPerm(Indexes) > 0) ) THEN
+
+                   k = COUNT( OldPerm(Indexes) > 0 )
+                   
+                   IF ( k == SIZE(Indexes) .OR. (InterpolatePartial .AND. k>0) ) THEN
                     IF( NewSol % TYPE == Variable_on_nodes_on_elements ) THEN
                       IF(.NOT. ALLOCATED(OneDGIndex) ) THEN                        
                         CALL CreateOneDGIndex()
@@ -1020,8 +1026,12 @@ END SUBROUTINE InterpolateMeshToMesh
                     END IF
                       
                     IF ( k /= 0 ) THEN
-                      ElementValues(1:n) = OldSol % Values(OldPerm(Indexes))
-                      
+                      WHERE( OldPerm(Indexes(1:n)) > 0 ) 
+                        ElementValues(1:n) = OldSol % Values(OldPerm(Indexes))
+                      ELSE WHERE
+                        ElementValues(1:n) = 0.0_dp
+                      END WHERE
+                        
                       val = InterpolateInElement( Element, ElementValues, &
                           LocalCoordinates(1), LocalCoordinates(2), LocalCoordinates(3) )
                       
@@ -1029,9 +1039,11 @@ END SUBROUTINE InterpolateMeshToMesh
 
                       IF ( ASSOCIATED( OldSol % PrevValues ) ) THEN
                         DO j=1,SIZE(OldSol % PrevValues,2)
-                          ElementValues(1:n) = &
-                              OldSol % PrevValues(OldPerm(Indexes),j)
-                          
+
+                          WHERE( OldPerm(Indexes(1:n)) > 0 )                           
+                            ElementValues(1:n) = OldSol % PrevValues(OldPerm(Indexes),j)
+                          END WHERE
+                            
                           val = InterpolateInElement( Element, ElementValues, &
                               LocalCoordinates(1), LocalCoordinates(2), LocalCoordinates(3) )
 
