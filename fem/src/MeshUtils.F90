@@ -17900,7 +17900,7 @@ CONTAINS
     ! Create the division for the 1D mesh
     !--------------------------------------------
     CALL ExtrudedDivision(Vlist,nlev,Wtable)    
-    CALL Info(Caller,'Creating '//I2S(nlev)//' extruded element layers',Level=10)
+    CALL Info(Caller,'Extruding '//I2S(nlev)//' element layers on: '//TRIM(Mesh_in % Name),Level=10)
     in_levels = nlev-1
         
     ! Generate volume nodal points:
@@ -18602,7 +18602,8 @@ CONTAINS
     ! Create the division for the 1D mesh
     !--------------------------------------------
     CALL ExtrudedDivision(Vlist,nlev,Wtable)    
-    CALL Info(Caller,'Creating '//I2S(nlev)//' extruded element layers',Level=10)
+    CALL Info(Caller,'Extruding '//I2S(nlev)//' element layers on: '//TRIM(Mesh_in % Name),Level=10)
+
     
     ! In parallel let us pick only our own share of the
     ! division. This logic makes it possible to have nonuniform divisions easily.
