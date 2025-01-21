@@ -58,9 +58,9 @@ MODULE DefUtils
 
    INTERFACE DefaultUpdateEquations
      MODULE PROCEDURE DefaultUpdateEquationsR, DefaultUpdateEquationsC, &
-         DefaultUpdateEquationsDiagC
-   END INTERFACE
-
+         DefaultUpdateEquationsDiagC, DefaultUpdateEquationsCutFemR
+   END INTERFACE 
+   
    INTERFACE DefaultUpdatePrec
      MODULE PROCEDURE DefaultUpdatePrecR, DefaultUpdatePrecC
    END INTERFACE
@@ -2302,9 +2302,10 @@ CONTAINS
      END IF
 
      n = Element % TYPE % NumberOfNodes
-     ElementNodes % x(1:n) = Mesh % Nodes % x(Element % NodeIndexes)
-     ElementNodes % y(1:n) = Mesh % Nodes % y(Element % NodeIndexes)
-     ElementNodes % z(1:n) = Mesh % Nodes % z(Element % NodeIndexes)
+     
+     ElementNodes % x(1:n) = Mesh % Nodes % x(Element % NodeIndexes(1:n))
+     ElementNodes % y(1:n) = Mesh % Nodes % y(Element % NodeIndexes(1:n))
+     ElementNodes % z(1:n) = Mesh % Nodes % z(Element % NodeIndexes(1:n))
 
      sz = SIZE(ElementNodes % x)
      IF ( sz > n ) THEN
@@ -2833,8 +2834,9 @@ CONTAINS
      END IF
      
      DO bc_id=1,CurrentModel % NumberOfBCs
-        IF ( Element % BoundaryInfo % Constraint == CurrentModel % BCs(bc_id) % Tag ) EXIT
+       IF ( Element % BoundaryInfo % Constraint == CurrentModel % BCs(bc_id) % Tag ) EXIT
      END DO
+      
      IF ( bc_id > CurrentModel % NumberOfBCs ) bc_id=0
 !------------------------------------------------------------------------------
   END FUNCTION GetBCId
@@ -2854,9 +2856,11 @@ CONTAINS
 
      Element => GetCurrentElement( UElement )
      
-     BC => Null()
+     BC => NULL()
      bc_id = GetBCId( Element )
+     
      IF ( bc_id > 0 )  BC => CurrentModel % BCs(bc_id) % Values
+     
 !------------------------------------------------------------------------------
   END FUNCTION GetBC
 !------------------------------------------------------------------------------
@@ -4135,6 +4139,133 @@ CONTAINS
   END SUBROUTINE DefaultUpdateEquationsR
 !------------------------------------------------------------------------------
 
+
+!------------------------------------------------------------------------------
+  SUBROUTINE DefaultUpdateEquationsCutFemR( G, F, CutEliminate, CutFinish, Element, USolver )
+!------------------------------------------------------------------------------
+     REAL(KIND=dp) :: G(:,:), f(:)
+     LOGICAL :: CutEliminate, CutFinish
+     TYPE(Element_t) :: Element
+     TYPE(Solver_t),  OPTIONAL, TARGET :: USolver
+     
+     TYPE(Solver_t), POINTER   :: Solver
+     TYPE(Matrix_t), POINTER   :: A
+     TYPE(Variable_t), POINTER :: x
+     TYPE(Element_t), POINTER  :: CurrElement
+     REAL(KIND=dp), POINTER CONTIG   :: b(:)
+     REAL(KIND=dp), ALLOCATABLE :: Gsum(:,:), fsum(:) 
+     INTEGER, ALLOCATABLE :: iorder(:), sumIndexes(:)
+     INTEGER :: nsum , n0          
+     LOGICAL :: Found 
+     INTEGER :: i, j, k, n, m, nd, nn
+     INTEGER, POINTER CONTIG :: PermIndexes(:)
+
+     SAVE :: Gsum, Fsum, nsum, n0, iorder, nn, sumIndexes
+     
+     IF ( PRESENT( USolver ) ) THEN
+       Solver => USolver
+     ELSE
+       Solver => CurrentModel % Solver
+     END IF
+     
+     A => Solver % Matrix
+     x => Solver % Variable
+     b => A % RHS
+
+     n = Element % Type % NumberOfNodes     
+     PermIndexes => GetPermIndexStore()
+     
+     ! If we do not want to eliminate the boundary it is easy to just sum up the entries. 
+     IF(.NOT. CutEliminate ) THEN       
+       PermIndexes(1:n) = x % Perm(Element % NodeIndexes(1:n))
+       IF(ANY(PermIndexes(1:n) == 0)) &
+           CALL Fatal('DefaultUpdateEquationsCutFemR','Zero PermIndexes in piece element?')
+       CALL UpdateGlobalEquations( A,G,b,f,n,x % DOFs, &
+           PermIndexes(1:n), UElement=Element )            
+       RETURN
+     END IF
+     
+     ! Otherwise we collect the local entries and eliminate the boundary entries. 
+     IF(.NOT. ALLOCATED(fsum)) THEN
+       nn = CurrentModel % Mesh % NumberOfNodes
+       m = 3*n 
+       ALLOCATE(Gsum(m,m),fsum(m),iorder(m),sumIndexes(m))
+       Gsum = 0.0_dp
+       fsum = 0.0_dp       
+       iorder = 0
+       nsum = 0
+     END IF
+
+     ! Get the indexes of the composite element.
+     ! Here we must assume that the CurrentElement points correctly!
+     CurrElement => CurrentModel % CurrentElement 
+     n0 = CurrElement % Type % NumberOfNodes
+
+     ! Create permutation for the local super element. 
+     ! These are the nodal ones. We assumes and check that all exists, since
+     ! otherwise we cannot do elimination. 
+     IF(nsum == 0 ) THEN
+       IF(ANY(x % Perm(CurrElement % NodeIndexes(1:n0)) == 0)) THEN
+         CALL Fatal('DefaultUpdateEquationsCutFemR','Zero PermIndexes in master element?')
+       END IF
+       nsum = n0
+       SumIndexes(1:n0) = CurrElement % NodeIndexes(1:n0) 
+     END IF
+
+     ! Take the piece and see to what indexes of the composite element it should
+     ! be copied to. 
+     iOrder(1:n) = 0
+     DO i=1,n
+       k = Element % NodeIndexes(i)
+       Found = .FALSE.
+       DO j=1,nsum
+         IF(SumIndexes(j)==k) THEN
+           Found = .TRUE.
+           iOrder(i) = j
+           EXIT
+         END IF
+       END DO
+       IF(.NOT. Found ) THEN
+         nsum = nsum+1
+         SumIndexes(nsum) = k
+         iOrder(i) = nsum
+       END IF
+     END DO
+
+     !PRINT *,'CurrElem:',CurrElement % nodeIndexes
+     !PRINT *,'Element:',Element % NodeIndexes(1:n)
+     !PRINT *,'SumInds:',SumIndexes(1:nsum)
+     !PRINT *,'Iorder:',Iorder(1:n)
+     
+     ! Sum of local matrix equation for the element cut.
+     DO i=1,n
+       DO j=1,n
+         Gsum(iOrder(i),iOrder(j)) = Gsum(iOrder(i),iOrder(j)) + G(i,j)         
+       END DO
+       Fsum(iOrder(i)) = Fsum(iOrder(i)) + f(i)
+     END DO
+
+     ! Eliminate the cut dofs at the zero level set. 
+     IF( CutFinish ) THEN
+       !PRINT *,'Condensate:',n0,nsum,SumIndexes(1:nsum)
+       !DO i=1,nsum
+       !  PRINT *,'Gsum:',Gsum(1,1:nsum)
+       !END DO
+       !PRINT *,'Fsum:',fsum(1:nsum)
+       
+       CALL CondensateP( n0, nsum-n0, Gsum, Fsum ) 
+       CALL UpdateGlobalEquations( A,Gsum,b,fsum,n0,x % DOFs, &
+           x % Perm(SumIndexes(1:n0)), UElement=CurrElement )       
+       GSum = 0.0_dp
+       fSum = 0.0_dp       
+       nsum = 0
+     END IF
+     
+!------------------------------------------------------------------------------
+   END SUBROUTINE DefaultUpdateEquationsCutFemR
+!------------------------------------------------------------------------------
+
+  
   
   SUBROUTINE DefaultUpdateEquationsIm( G, F, UElement, USolver, VecAssembly )     
     TYPE(Solver_t),  OPTIONAL, TARGET :: USolver
