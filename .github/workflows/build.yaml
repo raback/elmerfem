@@ -17,40 +17,54 @@ jobs:
   ubuntu:
     # For available GitHub-hosted runners, see:
     # https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
 
-    name: ubuntu (${{ matrix.compiler }} ${{ matrix.mpi }} MPI ${{ matrix.openmp }} OpenMP)
+    name: ${{ matrix.os }} (${{ matrix.compiler }} ${{ matrix.mpi }} MPI ${{ matrix.openmp }} OpenMP)
 
     strategy:
       # Allow other runners in the matrix to continue if some fail
       fail-fast: false
 
       matrix:
+        os: [ubuntu-24.04]
         compiler: [gcc]
         mpi: [with]
         openmp: [with]
         include:
-          - compiler: gcc
+          - os: ubuntu-24.04
+            compiler: gcc
             compiler-pkgs: "g++ gcc"
             cc: "gcc"
             cxx: "g++"
+            mpi: with
             openmp: with
             openmp-cmake-flags: "-DWITH_OpenMP=ON"
-          - compiler: gcc
+          - os: ubuntu-24.04
+            compiler: gcc
             compiler-pkgs: "g++ gcc"
             cc: "gcc"
             cxx: "g++"
             mpi: without
             openmp: with
             openmp-cmake-flags: "-DWITH_OpenMP=ON"
-          - compiler: gcc
+          - os: ubuntu-24.04
+            compiler: gcc
             compiler-pkgs: "g++ gcc"
             cc: "gcc"
             cxx: "g++"
             mpi: with
             openmp: without
             openmp-cmake-flags: "-DWITH_OpenMP=OFF"
-          - compiler: clang
+          - os: ubuntu-24.04-arm
+            compiler: gcc
+            compiler-pkgs: "g++ gcc"
+            cc: "gcc"
+            cxx: "g++"
+            mpi: with
+            openmp: without
+            openmp-cmake-flags: "-DWITH_OpenMP=OFF"
+          - os: ubuntu-24.04
+            compiler: clang
             compiler-pkgs: "clang"
             cc: "clang"
             cxx: "clang++"
@@ -98,7 +112,7 @@ jobs:
         run: |
           # work around error in the rocALUTION CMake config file distributed by Ubuntu
           if [ "${{ matrix.compiler }}" == "gcc" ] && [ "${{ matrix.mpi }}" == "with" ]; then
-            sudo sed -i '/find_dependency(HIP)/d' /usr/lib/x86_64-linux-gnu/cmake/rocalution/rocalution-config.cmake
+            sudo sed -i '/find_dependency(HIP)/d' /usr/lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH)/cmake/rocalution/rocalution-config.cmake
           fi
           mkdir ${GITHUB_WORKSPACE}/build
           cd ${GITHUB_WORKSPACE}/build
