@@ -1,6 +1,6 @@
 name: act_test
 on:
-  workflow_dispatch: act_test
+  workflow_dispatch:
   push:
     paths-ignore:
       - '**.nix'
@@ -48,8 +48,7 @@ jobs:
           brew install --overwrite python@3.12 python@3.13
           brew reinstall gcc
           brew install \
-            cmake libomp openblas open-mpi suitesparse \
-            qwt vtk opencascade
+            cmake libomp openblas open-mpi
           echo "HOMEBREW_PREFIX=$(brew --prefix)" >> $GITHUB_ENV
       - name: configure
         env:
