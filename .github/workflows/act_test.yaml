@@ -1,6 +1,6 @@
 name: act_test
 on:
-  workflow_dispatch:
+  workflow_dispatch: act_test
   push:
     paths-ignore:
       - '**.nix'
@@ -10,7 +10,7 @@ on:
       - '**.nix'
       - 'flake.lock'
 
-concurrency: ci-macos-homebrew-${{ github.ref }}
+concurrency: act_test-${{ github.ref }}
 
 jobs:
 
