@@ -93,10 +93,16 @@ jobs:
           submodules: recursive
 
       - name: install dependencies
+        # OpenBLAS before version 0.3.29 shipped kernels for ?NRM2 on
+        # Neoverse N2 that was inaccurate or returned NaN.  Use the
+        # reference implementation for the Ubuntu on ARM runners to avoid
+        # that issue.
+        # Consider reverting to OpenBLAS for all runners once Ubuntu ships
+        # a new enough version.
         run: |
           sudo apt -qq update
           sudo apt install -y ${{ matrix.compiler-pkgs }} cmake gfortran \
-            libopenblas-dev \
+            $([ "${{ matrix.os }}" == "ubuntu-24.04-arm" ] && echo "libblas-dev liblapack-dev" || echo "libopenblas-dev") \
             $([ "${{ matrix.mpi }}" == "with" ] && echo "libhypre-dev") \
             $([ "${{ matrix.mpi }}" == "with" ] && echo "libopenmpi-dev libmumps-dev libparmetis-dev") \
             $([ "${{ matrix.compiler }}" == "gcc" ] && echo "libsuitesparse-dev") \
@@ -119,7 +125,7 @@ jobs:
           cmake \
             -DCMAKE_BUILD_TYPE="Release" \
             -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/usr" \
-            -DBLA_VENDOR="OpenBLAS" \
+            $([ "${{ matrix.os }}" == "ubuntu-24.04-arm" ] && echo "-DBLA_VENDOR=Generic" || echo "-DBLA_VENDOR=OpenBLAS") \
             ${{ matrix.openmp-cmake-flags }} \
             -DWITH_LUA=ON \
             $([ "${{ matrix.mpi }}" == "with" ] && echo "-DWITH_Zoltan=ON" || echo "-DWITH_Zoltan=OFF") \
