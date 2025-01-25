@@ -551,12 +551,12 @@ CONTAINS
         IF( PRESENT(BlockIndex) ) THEN
           CALL Info('BlockInitVar','Using BlockIndex to pick variable and perm',Level=20)
           NULLIFY(VarPerm)
-          m = SIZE(Solver % Variable % Perm) 
+          m = SIZE(Solver % Variable % Values)
           ALLOCATE(VarPerm(m))
           VarPerm = 0
 
           k = 0
-          DO j=1,SIZE(Solver % Variable % Perm)
+          DO j=1,SIZE(Solver % Variable % Values)
             IF(BlockIndex(j) == i) THEN
               k = k+1
               VarPerm(j) = k
@@ -4709,7 +4709,7 @@ CONTAINS
       ! These take monolithic splitting and only return the "BlockIndex" which tells to which
       ! block each dof belongs to. Then the same routine can split the matrices for all. 
       !-----------------------------------------------------------------------------------------------
-      n = SIZE( Solver % Variable % Values )      
+      n = SIZE( Solver % Variable % Values)      
       ALLOCATE( BlockIndex(n) )
       BlockIndex = 0
       BlockDofs = 0
