@@ -2252,8 +2252,8 @@ CONTAINS
         ! the bubble count when solverwise definitions are used.
         IF (ASSOCIATED(Solver % Values)) THEN
           Bubbles = ListGetLogical(Solver % Values, 'Bubbles', Found)
-          IF (Bubbles .AND. ASSOCIATED(CurrElement % BubbleIndexes)) THEN
-            n = SIZE(CurrElement % BubbleIndexes)
+          IF (Bubbles) THEN
+            n = CurrElement % BDOFs
           END IF
         END IF
       END IF
