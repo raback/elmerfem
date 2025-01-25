@@ -2171,10 +2171,12 @@ CONTAINS
              IF (p > 1) BDOFs = GetBubbleDOFs(Element, p)
              BDOFs = MAX(nb, BDOFs)
            ELSE
-             Bubbles = ListGetLogical(Solver % Values, 'Bubbles', Found )
-             ! The following is not a right way to obtain the bubble count
-             ! in order to support solverwise definitions
-             IF (Bubbles) BDOFs = SIZE(Element % BubbleIndexes)
+             IF (ASSOCIATED(Solver % Values)) THEN
+               Bubbles = ListGetLogical(Solver % Values, 'Bubbles', Found )
+               ! The following is not a right way to obtain the bubble count
+               ! in order to support solverwise definitions
+               IF (Bubbles) BDOFs = SIZE(Element % BubbleIndexes)
+             END IF
            END IF
            n = n + BDOFs
          END IF
@@ -2247,10 +2249,12 @@ CONTAINS
       ELSE
         ! The element command hasn't been given, so the only way to activate the bubbles
         ! should be the "Bubbles" command. The following is not a reliable way to obtain
-        ! the bubble count when solverwise definitions are used.   
-        Bubbles = ListGetLogical(Solver % Values, 'Bubbles', Found)
-        IF (Bubbles .AND. ASSOCIATED(Element % BubbleIndexes)) THEN
-          n = SIZE(Element % BubbleIndexes)
+        ! the bubble count when solverwise definitions are used.
+        IF (ASSOCIATED(Solver % Values)) THEN
+          Bubbles = ListGetLogical(Solver % Values, 'Bubbles', Found)
+          IF (Bubbles .AND. ASSOCIATED(CurrElement % BubbleIndexes)) THEN
+            n = SIZE(CurrElement % BubbleIndexes)
+          END IF
         END IF
       END IF
 
@@ -2272,9 +2276,13 @@ CONTAINS
           n = MAX(k,n)
           CurrElement % BDOFs = n
         ELSE
-          Bubbles = ListGetLogical(Solver % Values, 'Bubbles', Found)
-          IF (Bubbles .AND. ASSOCIATED(Element % BubbleIndexes)) THEN
-            CurrElement % BDOFs = SIZE(Element % BubbleIndexes)
+          IF (ASSOCIATED(Solver % Values)) THEN
+            Bubbles = ListGetLogical(Solver % Values, 'Bubbles', Found)
+            IF (Bubbles .AND. ASSOCIATED(CurrElement % BubbleIndexes)) THEN
+              CurrElement % BDOFs = SIZE(CurrElement % BubbleIndexes)
+            ELSE
+              CurrElement % BDOFs = 0
+            END IF
           ELSE
             CurrElement % BDOFs = 0
           END IF

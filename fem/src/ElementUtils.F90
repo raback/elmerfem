@@ -4300,10 +4300,12 @@ BLOCK
            IF (p > 1) BDOFs = GetBubbleDOFs(Element, p)
            BDOFs = MAX(nb, BDOFs)
          ELSE
-           Bubbles = ListGetLogical(Solver % Values, 'Bubbles', Found )
-           ! The following is not a right way to obtain the bubble count
-           ! in order to support solverwise definitions
-           IF (Bubbles) BDOFs = SIZE(Element % BubbleIndexes)
+           IF (ASSOCIATED(Solver % Values)) THEN
+             Bubbles = ListGetLogical(Solver % Values, 'Bubbles', Found )
+             ! The following is not a right way to obtain the bubble count
+             ! in order to support solverwise definitions
+             IF (Bubbles) BDOFs = SIZE(Element % BubbleIndexes)
+           END IF
          END IF
          DO i=1,BDOFs
            nd = nd + 1
