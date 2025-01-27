@@ -3,7 +3,7 @@
 ! *  Elmer, A Finite Element Software for Multiphysical Problems
 ! *
 ! *  Copyright 1st April 1995 - , CSC - IT Center for Science Ltd., Finland
-! * 
+! *
 ! *  This library is free software; you can redistribute it and/or
 ! *  modify it under the terms of the GNU Lesser General Public
 ! *  License as published by the Free Software Foundation; either
@@ -13,10 +13,10 @@
 ! *  but WITHOUT ANY WARRANTY; without even the implied warranty of
 ! *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 ! *  Lesser General Public License for more details.
-! * 
+! *
 ! *  You should have received a copy of the GNU Lesser General Public
-! *  License along with this library (in file ../LGPL-2.1); if not, write 
-! *  to the Free Software Foundation, Inc., 51 Franklin Street, 
+! *  License along with this library (in file ../LGPL-2.1); if not, write
+! *  to the Free Software Foundation, Inc., 51 Franklin Street,
 ! *  Fifth Floor, Boston, MA  02110-1301  USA
 ! *
 ! ******************************************************************************
@@ -31,7 +31,7 @@
 ! *  Web:     http://www.csc.fi/elmer
 ! *  Address: CSC - IT Center for Science Ltd.
 ! *           Keilaranta 14
-! *           02101 Espoo, Finland 
+! *           02101 Espoo, Finland
 ! *
 ! *  Original Date: 02 Jun 1997
 ! *
@@ -64,7 +64,7 @@
 /* pc needs more bits on 64bit arch  */
 #ifdef ARCH_32_BITS
 #define f_ptr int32_t *
-#else 
+#else
 #define f_ptr int64_t *
 #endif
 
@@ -86,7 +86,7 @@
 #ifdef USE_ISO_C_BINDINGS
 void STDCALLBULL getsolverhome( char *solverDir, int *len)
 #else
-void STDCALLBULL FC_FUNC(getsolverhome,GETSOLVERHOME) 
+void STDCALLBULL FC_FUNC(getsolverhome,GETSOLVERHOME)
      ( char *solverDir, int *len)
 #endif
 {
@@ -188,14 +188,14 @@ void STDCALLBULL FC_FUNC(envir,ENVIR) (char *Name, char *Value, int *len)
 static void STDCALLBULL fortranMangle(char *orig, char *mangled)
 {
   int uscore, i;
-  
+
   strcpy( mangled, orig );
 
   if(ELMER_LINKTYP == 1 || ELMER_LINKTYP == 3 || ELMER_LINKTYP == 4)
   {
     for( i=0 ; i<strlen(mangled) ; i++ ) /* to lower case */
     {
-      if ( mangled[i] >= 'A'  && mangled[i] <= 'Z' ) 
+      if ( mangled[i] >= 'A'  && mangled[i] <= 'Z' )
 	mangled[i] += 'a' - 'A';
     }
   }
@@ -203,11 +203,11 @@ static void STDCALLBULL fortranMangle(char *orig, char *mangled)
   {
     for( i=0; i<strlen(mangled); i++ ) /* to upper case */
     {
-      if ( mangled[i] >= 'a'  && mangled[i] <= 'z' ) 
+      if ( mangled[i] >= 'a'  && mangled[i] <= 'z' )
 	mangled[i] += 'A' - 'a';
     }
   }
-  
+
   if(ELMER_LINKTYP == 1) /* underscore */
   {
       strcat( mangled, "_" );
@@ -218,12 +218,12 @@ static void STDCALLBULL fortranMangle(char *orig, char *mangled)
     for( i=0; i<strlen(mangled); i++ )
       if(mangled[i] == '_')
 	uscore++;
-    
+
     if(uscore == 0)
     {
       strcat( mangled, "_" );
-    } 
-    else 
+    }
+    else
     {
       strcat( mangled, "__" );
     }
@@ -327,7 +327,7 @@ try_open_solver(char *SearchPath, char *Library, void **Handle, char *errorBuf)
   loaded library and name of the routine.
   -------------------------------------------------------------------------*/
 #ifdef USE_ISO_C_BINDINGS
-void *STDCALLBULL loadfunction_c( int *Quiet, int *abort_not_found, 
+void *STDCALLBULL loadfunction_c( int *Quiet, int *abort_not_found,
         char *Library, char *Name, int *mangle )
 #else
 void *STDCALLBULL FC_FUNC(loadfunction,LOADFUNCTION) ( int *Quiet, int *abort_not_found,
@@ -404,7 +404,7 @@ void *STDCALLBULL FC_FUNC(loadfunction,LOADFUNCTION) ( int *Quiet, int *abort_no
       fprintf(stderr, "%s", ErrorBuffer);
       exit(0);
    }
-   
+
 #ifdef HAVE_DLOPEN_API
 
    if ( (Function = (void(*)())dlsym( Handle,NewName)) == NULL && *abort_not_found )
@@ -547,7 +547,7 @@ static void DoExecSolver(
   void (STDCALLBULL *SolverProc)(void *, void *, void *, void *),
   void *Model, void *Solver, void *dt, void *Transient)
 {
-  (*SolverProc)( Model,Solver,dt,Transient ); 
+  (*SolverProc)( Model,Solver,dt,Transient );
   return;
 }
 
@@ -604,7 +604,7 @@ void mtc_init(FILE *,FILE *, FILE *);
 #ifdef USE_ISO_C_BINDINGS
 void STDCALLBULL matc_get_array(char *name, double *values, int *nrows, int *ncols )
 #else
-void STDCALLBULL FC_FUNC_(matc_get_array,MATC_GET_ARRAY) (char *name, 
+void STDCALLBULL FC_FUNC_(matc_get_array,MATC_GET_ARRAY) (char *name,
            double *values, int *nrows, int *ncols )
 #endif
 {
@@ -633,7 +633,7 @@ void STDCALLBULL FC_FUNC(matc_c,MATC) (char *cmd,int *cmdlen,char *result,*resle
 
    slen = *len;
    if ( been_here==0 ) {
-     mtc_init( NULL, stdout, stderr ); 
+     mtc_init( NULL, stdout, stderr );
      strcpy( cc, "format( 12,\"rowform\")" );
      mtc_domath( cc );
      been_here = 1;
@@ -711,8 +711,8 @@ double STDCALLBULL FC_FUNC(materialuserfunction,MATERIALUSERFUNCTION)
   INTERNAL: execute user material function
   -------------------------------------------------------------------------*/
 static void DoSimulationProc( void (STDCALLBULL *SimulationProc)(void *), void *Model )
-{ 
-  (*SimulationProc)( Model ); 
+{
+  (*SimulationProc)( Model );
 }
 
 /*--------------------------------------------------------------------------
@@ -730,7 +730,7 @@ void STDCALLBULL FC_FUNC(execsimulationproc,EXECSIMULATIONPROC)
 
 
 /*--------------------------------------------------------------------------
-  INTERNAL: execute (Krylov) iterator 
+  INTERNAL: execute (Krylov) iterator
   -------------------------------------------------------------------------*/
 static void DoIterCall(
   void (STDCALLBULL *iterProc)(void *,void *,void *,void *,void *,
@@ -747,8 +747,8 @@ static void DoIterCall(
   void (STDCALLBULL *dotProc)(),
   void (STDCALLBULL *normProc)(),
   void (STDCALLBULL *STOPC)() )
-{ 
-  (*iterProc)( x,b,ipar,dpar,work,mvProc,pcondProc, 
+{
+  (*iterProc)( x,b,ipar,dpar,work,mvProc,pcondProc,
        pcondrProc,dotProc,normProc,STOPC );
 }
 
@@ -760,7 +760,7 @@ void STDCALLBULL itercall_c( f_ptr iterProc, void *x, void *b, void *ipar, void 
        f_ptr mvProc, f_ptr pcondProc, f_ptr pcondrProc, f_ptr dotProc, f_ptr normProc, f_ptr STOPC )
 #else
 void STDCALLBULL FC_FUNC(itercall,ITERCALL)
-     ( f_ptr iterProc, void *x, void *b, void *ipar, void *dpar, void *work, 
+     ( f_ptr iterProc, void *x, void *b, void *ipar, void *dpar, void *work,
        f_ptr mvProc, f_ptr pcondProc, f_ptr pcondrProc, f_ptr dotProc, f_ptr normProc, f_ptr STOPC )
 #endif
 {
@@ -772,7 +772,7 @@ void STDCALLBULL FC_FUNC(itercall,ITERCALL)
                                      void (STDCALLBULL *)(),
                                      void (STDCALLBULL *)())) *iterProc,
        x,b,ipar,dpar,work,
-       (void (STDCALLBULL *)())*mvProc, 
+       (void (STDCALLBULL *)())*mvProc,
        (void (STDCALLBULL *)())*pcondProc,
        (void (STDCALLBULL *)())*pcondrProc,
        (void (STDCALLBULL *)())*dotProc,
@@ -786,7 +786,7 @@ void STDCALLBULL FC_FUNC(itercall,ITERCALL)
 static void DoLocalCall(
   void (STDCALLBULL *localProc)(void *, void *, void *, void *, void *, void *, void *),
   void *Model, void *Solver, void *G, void *F, void *Element, void *n, void *nd )
-{ 
+{
   (*localProc)( Model, Solver, G, F, Element, n, nd );
 }
 
@@ -814,7 +814,7 @@ void STDCALLBULL FC_FUNC(execlocalproc, EXECLOCALPROC )
 static void DoLocalAssembly(
   void (STDCALLBULL *LocalAssembly)(void *, void *, void *, void *, void *, void *, void *,void *, void *, void *, void *),
   void *Model,void *Solver,void *dt,void *transient,void *M, void *D, void *S,void *F, void *Element,void *n,void *nd )
-{ 
+{
   (*LocalAssembly)( Model, Solver, dt, transient, M, D, S, F, Element, n, nd );
 }
 
@@ -844,7 +844,7 @@ void STDCALLBULL FC_FUNC(execlocalassembly, EXECLOCALASSEMBLY )
 static void DoMatVecSubr(
   void (STDCALLBULL *matvec)(void **, void *, void *, void *,void *, void *, void *, void *),
   void **SpMV, void *n, void *rows, void *cols, void *vals, void *u, void *v, void *reinit )
-{ 
+{
   (*matvec)( SpMV,n,rows,cols,vals,u,v,reinit);
 }
 
