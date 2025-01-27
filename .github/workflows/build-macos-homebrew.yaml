@@ -73,11 +73,14 @@ jobs:
       - name: configure
         env:
           LDFLAGS: ${{ matrix.openmp == 'with' && format('-L{0}/opt/libomp/lib -lomp', env.HOMEBREW_PREFIX) || '' }}
+        # The tests `SD_H1BasisEvaluation` and `SD_LinearFormsAssembly` are
+        # failing on macos-13 (Intel CPU) at optimization level `-O3`.
+        # They are passing if ElmerFEM is built with optimization level `-O2`.
         run: |
           mkdir ${GITHUB_WORKSPACE}/build
           cd ${GITHUB_WORKSPACE}/build
           cmake \
-            -DCMAKE_BUILD_TYPE="Release" \
+            -DCMAKE_BUILD_TYPE=${{ matrix.os == 'macos-13' && 'RelWithDebInfo' || 'Release' }} \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
             -DCMAKE_Fortran_COMPILER=gfortran \
