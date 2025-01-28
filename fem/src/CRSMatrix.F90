@@ -4750,8 +4750,8 @@ SUBROUTINE CRS_RowSumInfo( A, Values )
   SUBROUTINE CRS_MatrixVectorProd( u,v,ipar )
 !------------------------------------------------------------------------------
     INTEGER, DIMENSION(*), INTENT(IN) :: ipar  !< Structure holding info HUTIter-iterative solver package
-    REAL(KIND=dp), INTENT(IN) :: u(HUTI_NDIM)  !< vector to multiply u
-    REAL(KIND=dp) :: v(HUTI_NDIM)              !< result vector
+    REAL(KIND=dp), INTENT(IN) :: u(*)  !< vector to multiply u
+    REAL(KIND=dp) :: v(*)              !< result vector
 
 !------------------------------------------------------------------------------
     INTEGER, POINTER  CONTIG :: Cols(:),Rows(:)
