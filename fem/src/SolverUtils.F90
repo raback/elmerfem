@@ -9158,10 +9158,11 @@ CONTAINS
 !------------------------------------------------------------------------------
 !   Compute sum of elementwise normals for nodes on boundaries
 !------------------------------------------------------------------------------
-      ALLOCATE( n_comp(SIZE(BoundaryReorder)) )
-      n_comp = 0
       
       IF ( NumberOfBoundaryNodes>0 ) THEN
+        ALLOCATE( n_comp(SIZE(BoundaryReorder)) )
+        n_comp = 0
+
         BoundaryNormals = 0._dp
         ConflictCount = 0
 

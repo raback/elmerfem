@@ -14571,11 +14571,11 @@ CONTAINS
       ALLOCATE(rArray(nd,1))
       rArray = 0.0_dp
 
-      rArray(1:4,1) = Nodes % x
+      rArray(1:4,1) = Nodes % x(1:4)
       CALL ListAddConstRealArray( PParams,'Patch Corners x',4,1,rArray) 
-      rArray(1:4,1) = Nodes % y
+      rArray(1:4,1) = Nodes % y(1:4)
       CALL ListAddConstRealArray( PParams,'Patch Corners y',4,1,rArray)
-      rArray(1:4,1) = Nodes % z
+      rArray(1:4,1) = Nodes % z(1:4)
       CALL ListAddConstRealArray( PParams,'Patch Corners z',4,1,rArray)
       rArray(1:nd,1) = pheight(1:nd)
       CALL ListAddConstRealArray( PParams,'Patch Height Basis',nd,1,rArray)
@@ -21973,9 +21973,9 @@ END SUBROUTINE FindNeighbourNodes
 !
 !   new mesh includes old mesh nodes:
 !   ----------------------------------
-    x(1:Mesh % NumberOfNodes) = u
-    y(1:Mesh % NumberOfNodes) = v
-    z(1:Mesh % NumberOfNodes) = w
+    x(1:Mesh % NumberOfNodes) = u(1:Mesh % NumberOfNodes)
+    y(1:Mesh % NumberOfNodes) = v(1:Mesh % NumberOfNodes)
+    z(1:Mesh % NumberOfNodes) = w(1:Mesh % NumberOfNodes)
 
 ! what is h? - pointer to nodal element size
     IF (PRESENT(h)) THEN

@@ -3763,14 +3763,18 @@ CONTAINS
       END IF
 
       IF(l>0) THEN
-        IF( .NOT. ALLOCATED(fip) .OR. SIZE(fip) < l ) THEN
-          IF( ALLOCATED( fip ) ) DEALLOCATE( fip )
+        IF( .NOT. ALLOCATED(fip)) THEN
+          ALLOCATE( fip(l) )
+        ELSE IF (SIZE(fip) < l) THEN
+          DEALLOCATE( fip )
           ALLOCATE( fip(l) )
         END IF
 
-        IF( .NOT. ALLOCATED(fdg) .OR. SIZE(fdg) < n ) THEN
-          IF( ALLOCATED( fdg ) ) DEALLOCATE( fdg )
-          ALLOCATE( fdg(n) )
+        IF(.NOT. ALLOCATED(fdg)) THEN
+           ALLOCATE( fdg(n) )
+        ELSE IF(SIZE(fdg) < n) THEN
+           DEALLOCATE( fdg )
+           ALLOCATE( fdg(n) )
         END IF
 
         DO ii=1,MAX(Var % Dofs,comps)

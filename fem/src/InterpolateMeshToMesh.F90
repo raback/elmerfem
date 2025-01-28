@@ -532,6 +532,11 @@ CONTAINS
     TYPE(Variable_t), POINTER :: Var
     LOGICAL :: IsLegit
 
+    IF(.NOT.ASSOCIATED(Var)) THEN
+      IsLegit = .FALSE.
+      RETURN
+    END IF
+
     ! Only nodal and discontinuous galerkin fields can be interpolated as for now. 
     IsLegit = ( Var % TYPE == Variable_on_nodes_on_elements .OR. Var % Type == Variable_on_nodes ) 
     ! Even for vectors the interpolation is done for each scalar component. 
@@ -542,7 +547,11 @@ CONTAINS
       IF( Var % Name(1:10) == 'coordinate' ) IsLegit = .FALSE.
     END IF
     ! This is global variable for which the type has not been properly set.
-    IF(.NOT. ASSOCIATED(Var % Perm) .AND. SIZE(Var % Values) == 1 ) IsLegit = .FALSE.
+    IF(.NOT. ASSOCIATED(Var % Perm) ) THEN
+      IF(ASSOCIATED(Var % Values) ) THEN
+       IF (SIZE(Var % Values)==1 ) IsLegit = .FALSE.
+     END IF
+    END IF
     
   END FUNCTION LegitInterpVar
 

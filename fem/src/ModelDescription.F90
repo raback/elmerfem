@@ -3067,24 +3067,36 @@ CONTAINS
         i = 1
         nlen = LEN_TRIM(name)
         MeshName = ' '
-        DO WHILE( k<=nlen .AND. name(k:k) /= ' ' )
-          MeshDir(i:i)  = name(k:k)
-          Meshname(i:i) = name(k:k)
-          k = k + 1
-          i = i + 1
+        DO WHILE ( k<=nlen)
+          IF( name(k:k) /= ' ' ) THEN
+            MeshDir(i:i)  = name(k:k)
+            Meshname(i:i) = name(k:k)
+            k = k + 1
+            i = i + 1
+          ELSE
+            EXIT
+          END IF
         END DO
 
-        DO WHILE( k<=nlen .AND. Name(k:k) == ' ' )
-          k = k + 1
+        DO WHILE( k<=nlen)
+          IF(Name(k:k) == ' ') THEN
+            k = k + 1
+          ELSE
+            EXIT
+          END IF
         END DO
 
         IF ( k<=nlen ) THEN
           MeshName(i:i) = '/'
           i = i + 1
-          DO WHILE( name(k:k) /= ' ' )
-            MeshName(i:i) = Name(k:k)
-            k = k + 1
-            i = i + 1
+          DO WHILE (k<=nlen) 
+            IF( name(k:k) /= ' ' ) THEN
+              MeshName(i:i) = Name(k:k)
+              k = k + 1
+              i = i + 1
+            ELSE
+              EXIT
+            END IF
           END DO
         ELSE
           OneMeshName = .TRUE.
