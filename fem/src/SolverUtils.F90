@@ -4683,6 +4683,9 @@ CONTAINS
     
     CALL Info('FindClosestNode','Closest node found to be: '//I2S(MinNode),Level=20)
     
+    WRITE(Message,'(A,ES12.5)') 'Closest node distance: ',MinDist
+    CALL Info('FindClosestNode',Message,Level=20)
+    
   END SUBROUTINE FindClosestNode
 
 
