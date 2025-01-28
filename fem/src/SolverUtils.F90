@@ -9483,8 +9483,6 @@ CONTAINS
         END DO
         DEALLOCATE( n_index, n_count )
       END IF
-
-      DEALLOCATE(n_comp)
     END IF
 
 !------------------------------------------------------------------------------
